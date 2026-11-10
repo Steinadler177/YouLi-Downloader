@@ -1,0 +1,2 @@
+# Essentials 已包含 QtQuick / Controls / Network，比完整 PySide6 小很多
+PySide6-Essentials>=6.8
