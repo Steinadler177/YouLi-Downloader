@@ -5,6 +5,10 @@ yt-dlp / BBDownT / ffmpeg 都是外部可执行文件，可单独更新。
 
 ## 运行
 
+**双击 `start.bat`**。首次运行会自动创建 `.venv` 并安装依赖（有 uv 用 uv，否则用 py/pip），之后直接启动，不弹控制台。
+
+手动方式：
+
 ```bash
 uv venv --python 3.13 .venv
 uv pip install --python .venv/Scripts/python.exe -r requirements.txt
@@ -54,10 +58,20 @@ BBDownT 在输出被重定向时不打印进度，所以下载走它的服务器
 - 取消：服务器不支持取消单个任务，取消时结束服务进程，下一个任务自动重启服务。
 - “仅音频 MP3”：BBDownT 下载 m4a 后用 ffmpeg 转成 mp3。
 
-## 打包（之后）
+## 打包成 exe
 
-```bash
-pyinstaller --noconsole --onedir --name YTBDownloader --add-data "app/ui;app/ui" run.pyw
+**双击 `build.bat`**，输出 `dist\YTBDownloader\YTBDownloader.exe`：
+
+```
+dist\YTBDownloader\
+  YTBDownloader.exe
+  _internal\            Python + Qt 运行库（约 112 MB）
+  bin\                  从项目 bin\ 复制的 yt-dlp / BBDownT / ffmpeg（只复制 exe，不复制登录信息）
 ```
 
-打包后把 `bin/` 放在 exe 同级目录。
+- 整个 `dist\YTBDownloader` 文件夹可以直接拷到别的电脑，不需要装 Python。
+- 打包版的设置（`config.json`）和 B 站登录（`bin\BBDownT.data`）都在它自己的文件夹里，
+  和源码版互不影响，第一次使用需要重新扫码登录。
+- `build.bat` 会创建单独的 `.venv-build`，里面只装 `PySide6-Essentials` + PyInstaller。
+  不要用开发用的 `.venv` 打包：它是完整 PySide6，会多带约 200 MB 的 QtWebEngine。
+- 打包逻辑在 `tools/build.py`：生成图标、PyInstaller 单文件夹打包、删掉没用到的 Qt 文件、复制 `bin\` 工具。
