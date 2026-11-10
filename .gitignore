@@ -6,3 +6,8 @@ dist/
 config.json
 bin/*.exe
 bin/*.part
+# 下载输出目录（任意大小写）
+Download/
+download/
+**/Download/**
+**/download/**

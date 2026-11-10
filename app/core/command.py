@@ -11,7 +11,8 @@ DONE_TAG = "[done]"
 
 
 def _common(settings: Settings, ffmpeg: str | None) -> list[str]:
-    args = ["--newline", "--no-colors"]
+    # --encoding utf-8：强制元数据/打印用 UTF-8，避免 Windows 控制台 GBK 导致标题乱码
+    args = ["--newline", "--no-colors", "--encoding", "utf-8"]
     if ffmpeg:
         args += ["--ffmpeg-location", ffmpeg]
     if settings.cookies_browser:

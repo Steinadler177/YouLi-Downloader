@@ -1,11 +1,13 @@
-"""下载任务列表模型，供 QML ListView 使用。"""
+"""下载任务列表模型，供 QML 队列表格使用。"""
 from __future__ import annotations
 
 from PySide6.QtCore import QAbstractListModel, QByteArray, QModelIndex, Property, Qt, Signal, Slot
 
-ROLES = ["taskId", "url", "title", "status", "progress", "speed", "eta",
-         "size", "message", "filepath", "preset", "item"]
-_DEFAULTS = {"taskId": 0, "progress": 0.0}
+ROLES = [
+    "taskId", "url", "title", "status", "progress", "speed", "eta",
+    "size", "message", "filepath", "preset", "params", "item", "seq",
+]
+_DEFAULTS = {"taskId": 0, "progress": 0.0, "seq": 0}
 _ROLE_IDS = {name: Qt.UserRole + 1 + i for i, name in enumerate(ROLES)}
 
 
@@ -16,7 +18,6 @@ class TaskModel(QAbstractListModel):
         super().__init__(parent)
         self._rows: list[dict] = []
 
-    # ---- Qt model API ----
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self._rows)
 
@@ -29,13 +30,14 @@ class TaskModel(QAbstractListModel):
         name = ROLES[role - Qt.UserRole - 1] if Qt.UserRole < role <= Qt.UserRole + len(ROLES) else None
         if name is None:
             return None
+        if name == "seq":
+            return index.row() + 1
         return self._rows[index.row()].get(name, _DEFAULTS.get(name, ""))
 
     @Property(int, notify=countChanged)
     def count(self):
         return len(self._rows)
 
-    # ---- updates from DownloadManager ----
     @Slot(int, dict)
     def add(self, task_id: int, fields: dict):
         row = len(self._rows)
@@ -51,7 +53,8 @@ class TaskModel(QAbstractListModel):
             return
         self._rows[row].update(fields)
         idx = self.index(row)
-        self.dataChanged.emit(idx, idx, [_ROLE_IDS[k] for k in fields if k in _ROLE_IDS])
+        roles = [_ROLE_IDS[k] for k in fields if k in _ROLE_IDS]
+        self.dataChanged.emit(idx, idx, roles or list(_ROLE_IDS.values()))
 
     @Slot(int)
     def remove(self, task_id: int):
@@ -62,6 +65,11 @@ class TaskModel(QAbstractListModel):
         del self._rows[row]
         self.endRemoveRows()
         self.countChanged.emit()
+        # 序号依赖行号，移除后刷新剩余行的 seq
+        if self._rows:
+            top = self.index(0)
+            bottom = self.index(len(self._rows) - 1)
+            self.dataChanged.emit(top, bottom, [_ROLE_IDS["seq"]])
 
     def get(self, task_id: int) -> dict:
         row = self._find(task_id)

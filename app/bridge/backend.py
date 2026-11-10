@@ -13,7 +13,7 @@ from ..core.command import probe_args
 from ..core.config import Settings, find_tool
 from ..core.manager import DownloadManager
 from ..core.presets import PRESETS
-from ..core.process import ToolProcess
+from ..core.process import ToolProcess, decode_output
 from ..core.progress import summarize_info
 from ..core.updater import Updater
 from ..models.task_model import TaskModel
@@ -30,8 +30,6 @@ def _setting(name: str, typ, notify):
         setattr(self._settings, name, value)
         self._settings.save()
         self.settingsChanged.emit()
-        if name == "max_concurrent":
-            self._manager.pump()
 
     return Property(typ, fget, fset, notify=notify)
 
@@ -41,6 +39,7 @@ class Backend(QObject):
     settingsChanged = Signal()
     toolsChanged = Signal()
     probeChanged = Signal()
+    queueChanged = Signal()
 
     def __init__(self, settings: Settings, parent: QObject | None = None):
         super().__init__(parent)
@@ -51,6 +50,11 @@ class Backend(QObject):
         self._manager.taskChanged.connect(self._model.update)
         self._manager.taskRemoved.connect(self._model.remove)
         self._manager.taskChanged.connect(self._notify_task)
+        self._manager.taskAdded.connect(lambda *_: self.queueChanged.emit())
+        self._manager.taskChanged.connect(lambda *_: self.queueChanged.emit())
+        self._manager.taskRemoved.connect(lambda *_: self.queueChanged.emit())
+        self._manager.runningChanged.connect(lambda _r: self.queueChanged.emit())
+        self._manager.workStatusChanged.connect(lambda _s: self.queueChanged.emit())
 
         self._updater = Updater(self)
         self._update_status = ""
@@ -120,7 +124,7 @@ class Backend(QObject):
         self._update_status = s
         self.toolsChanged.emit()
 
-    # ---------------- 解析链接 ----------------
+    # ---------------- 解析链接（顶部预览，可选） ----------------
     @Property(bool, notify=probeChanged)
     def probing(self):
         return self._probe is not None
@@ -157,11 +161,11 @@ class Backend(QObject):
     def _on_probe_done(self, p: ToolProcess, code: int, err: str):
         p.deleteLater()
         if p is not self._probe:
-            return  # 已被新的解析取代
+            return
         self._probe = None
         if code == 0:
             try:
-                info = summarize_info(json.loads(p.stdout.decode("utf-8", errors="replace")))
+                info = summarize_info(json.loads(decode_output(p.stdout)))
                 info["url"] = self._probe_url
                 self._probe_info = info
             except ValueError:
@@ -179,8 +183,25 @@ class Backend(QObject):
     def presetNames(self):
         return [p.name for p in PRESETS]
 
+    @Property(bool, notify=queueChanged)
+    def queueRunning(self):
+        return self._manager.is_queue_running()
+
+    @Property(bool, notify=queueChanged)
+    def hasPending(self):
+        return self._manager.has_pending()
+
+    @Property(int, notify=queueChanged)
+    def failedCount(self):
+        return self._manager.failed_count()
+
+    @Property(str, notify=queueChanged)
+    def workStatus(self):
+        return self._manager.work_status()
+
     @Slot(str, int)
-    def download(self, url: str, preset: int):
+    def addToQueue(self, url: str, preset: int):
+        """回车 / 添加：只入队，不立刻下载。"""
         url = url.strip()
         if not url:
             self.toast.emit("请先粘贴视频链接")
@@ -188,6 +209,32 @@ class Backend(QObject):
         title = self._probe_info.get("title", "") if self._probe_info.get("url") == url else ""
         self.lastPreset = preset
         self._manager.add(url, preset, title)
+        self.toast.emit("已加入队列")
+
+    @Slot()
+    def startQueue(self):
+        if not self._manager.start_queue():
+            self.toast.emit("队列中没有待处理任务")
+            return
+        self.toast.emit("开始处理队列")
+
+    @Slot()
+    def stopQueue(self):
+        self._manager.stop_queue()
+        self.toast.emit("已停止接新任务")
+
+    @Slot()
+    def retryFailed(self):
+        n = self._manager.retry_failed()
+        if n == 0:
+            self.toast.emit("没有失败任务可重试")
+        else:
+            self.toast.emit(f"已重试 {n} 个失败任务")
+
+    @Slot(str, int)
+    def download(self, url: str, preset: int):
+        """兼容旧调用：等同于加入队列。"""
+        self.addToQueue(url, preset)
 
     @Slot(int)
     def cancel(self, task_id: int):
@@ -232,6 +279,9 @@ class Backend(QObject):
 
     def _notify_task(self, task_id: int, fields: dict):
         status = fields.get("status")
-        if status in ("done", "error"):
+        if status == "done":
             title = self._model.get(task_id).get("title") or "任务"
-            self.toast.emit(f"{'下载完成' if status == 'done' else '下载失败'}：{title}")
+            self.toast.emit(f"下载完成：{title}")
+        elif status == "error":
+            title = self._model.get(task_id).get("title") or "任务"
+            self.toast.emit(f"下载失败：{title}")

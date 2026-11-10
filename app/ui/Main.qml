@@ -7,9 +7,9 @@ import "components"
 
 ApplicationWindow {
     id: win
-    width: 980
-    height: 720
-    minimumWidth: 640
+    width: 1100
+    height: 740
+    minimumWidth: 720
     minimumHeight: 520
     visible: true
     title: "YTB Downloader"
@@ -19,6 +19,7 @@ ApplicationWindow {
     Material.primary: Material.Teal
 
     readonly property color subtleText: Material.theme === Material.Dark ? "#9aa5b1" : "#5f6b77"
+    readonly property color headerBg: Material.theme === Material.Dark ? "#252a31" : "#eef2f5"
 
     // ---------- 顶栏 ----------
     header: Pane {
@@ -73,6 +74,7 @@ ApplicationWindow {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: 8
             Label {
                 text: "下载队列"
                 font.pixelSize: 16
@@ -82,7 +84,34 @@ ApplicationWindow {
                 text: backend.tasks.count
                 color: win.subtleText
             }
+            Label {
+                visible: backend.queueRunning
+                text: "运行中"
+                color: Material.color(Material.Teal)
+                font.pixelSize: 12
+            }
             Item { Layout.fillWidth: true }
+            Button {
+                text: "开始队列"
+                highlighted: true
+                icon.source: "icons/play.svg"
+                enabled: backend.hasPending && !backend.queueRunning
+                onClicked: backend.startQueue()
+            }
+            Button {
+                text: "停止"
+                flat: true
+                icon.source: "icons/stop.svg"
+                visible: backend.queueRunning
+                onClicked: backend.stopQueue()
+            }
+            Button {
+                text: "重试失败"
+                flat: true
+                icon.source: "icons/refresh.svg"
+                enabled: backend.failedCount > 0
+                onClicked: backend.retryFailed()
+            }
             Button {
                 text: "清除已完成"
                 flat: true
@@ -91,32 +120,77 @@ ApplicationWindow {
             }
         }
 
+        // 表头
+        Rectangle {
+            Layout.fillWidth: true
+            height: 36
+            radius: 6
+            color: win.headerBg
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 10
+                anchors.rightMargin: 6
+                spacing: 8
+                Label { Layout.preferredWidth: 40; text: "#"; color: win.subtleText; font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter }
+                Label { Layout.preferredWidth: 180; Layout.fillWidth: true; text: "视频标题"; color: win.subtleText; font.pixelSize: 12 }
+                Label { Layout.preferredWidth: 160; Layout.fillWidth: true; text: "视频地址"; color: win.subtleText; font.pixelSize: 12 }
+                Label { Layout.preferredWidth: 90; text: "下载画质"; color: win.subtleText; font.pixelSize: 12 }
+                Label { Layout.preferredWidth: 140; Layout.fillWidth: true; text: "参数"; color: win.subtleText; font.pixelSize: 12 }
+                Label { Layout.preferredWidth: 130; text: "状态"; color: win.subtleText; font.pixelSize: 12 }
+                Label { Layout.preferredWidth: 96; text: "操作"; color: win.subtleText; font.pixelSize: 12 }
+            }
+        }
+
         ListView {
             id: taskList
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            spacing: 10
+            spacing: 2
             model: backend.tasks
-            delegate: TaskCard {}
+            delegate: QueueRow {}
             ScrollBar.vertical: ScrollBar {}
 
             add: Transition {
-                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 200 }
-                NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 200; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 180 }
             }
             remove: Transition {
-                NumberAnimation { property: "opacity"; to: 0; duration: 150 }
-            }
-            displaced: Transition {
-                NumberAnimation { properties: "y"; duration: 200; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "opacity"; to: 0; duration: 120 }
             }
 
             Label {
                 anchors.centerIn: parent
                 visible: taskList.count === 0
-                text: "粘贴或拖入视频链接开始下载"
+                text: "粘贴链接后点「添加」或回车加入队列，再点「开始队列」"
                 color: win.subtleText
+            }
+        }
+
+        // 当前工作状态（队列表下方）
+        Pane {
+            Layout.fillWidth: true
+            padding: 10
+            leftPadding: 14
+            rightPadding: 14
+            Material.elevation: 1
+            Material.roundedScale: Material.SmallScale
+            RowLayout {
+                anchors.fill: parent
+                spacing: 10
+                Label {
+                    text: "工作状态"
+                    color: win.subtleText
+                    font.pixelSize: 12
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: backend.workStatus
+                    elide: Text.ElideMiddle
+                    font.pixelSize: 13
+                    color: backend.queueRunning
+                           ? Material.color(Material.Teal)
+                           : (Material.theme === Material.Dark ? "#e8eef4" : "#1f2933")
+                }
             }
         }
     }
@@ -172,7 +246,6 @@ ApplicationWindow {
         function onToast(msg) { toast.show(msg) }
     }
 
-    // 把链接直接拖进窗口
     DropArea {
         anchors.fill: parent
         onDropped: (drop) => {

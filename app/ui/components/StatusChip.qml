@@ -7,12 +7,16 @@ Rectangle {
     property string status: ""
 
     readonly property var spec: ({
-        queued:      { text: "排队",   color: Material.color(Material.Grey) },
-        downloading: { text: "下载中", color: Material.color(Material.Blue) },
-        processing:  { text: "处理中", color: Material.color(Material.Purple) },
-        done:        { text: "完成",   color: Material.color(Material.Teal) },
-        error:       { text: "失败",   color: Material.color(Material.Red) },
-        cancelled:   { text: "已取消", color: Material.color(Material.BlueGrey) }
+        added:       { text: "已添加",   color: Material.color(Material.Grey) },
+        analyzing:   { text: "分析中",   color: Material.color(Material.Indigo) },
+        analyzed:    { text: "已分析",   color: Material.color(Material.Cyan) },
+        downloading: { text: "正在下载", color: Material.color(Material.Blue) },
+        processing:  { text: "正在下载", color: Material.color(Material.Blue) },
+        done:        { text: "下载完成", color: Material.color(Material.Teal) },
+        error:       { text: "下载失败", color: Material.color(Material.Red) },
+        cancelled:   { text: "已取消",   color: Material.color(Material.BlueGrey) },
+        // 兼容旧状态
+        queued:      { text: "已添加",   color: Material.color(Material.Grey) }
     })[status] || { text: status, color: Material.color(Material.Grey) }
 
     implicitWidth: label.implicitWidth + 20

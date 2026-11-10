@@ -8,6 +8,24 @@ from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
+def decode_output(raw: bytes) -> str:
+    """解码 yt-dlp 输出。优先 UTF-8；失败再试 Windows 中文常用的 GBK。"""
+    if not raw:
+        return ""
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    for enc in ("gbk", "cp936", "mbcs"):
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 class ToolProcess(QObject):
     """运行一个外部命令。
 
@@ -78,7 +96,7 @@ class ToolProcess(QObject):
             self._emit_line(raw)
 
     def _emit_line(self, raw: bytes) -> None:
-        text = raw.decode("utf-8", errors="replace").rstrip("\r")
+        text = decode_output(raw).rstrip("\r")
         if not text:
             return
         if text.startswith("ERROR:"):

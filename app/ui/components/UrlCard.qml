@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// 链接输入 + 解析结果 + 预设选择
+// 链接输入 + 解析结果 + 预设选择；回车/添加 = 入队
 Pane {
     id: root
     padding: 16
@@ -18,6 +18,15 @@ Pane {
         backend.probe(text)
     }
 
+    function addCurrent() {
+        const url = urlField.text.trim()
+        if (!url)
+            return
+        backend.addToQueue(url, presetBox.currentIndex)
+        urlField.clear()
+        backend.clearProbe()
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 12
@@ -29,9 +38,9 @@ Pane {
             TextField {
                 id: urlField
                 Layout.fillWidth: true
-                placeholderText: "粘贴视频或播放列表链接，回车解析"
+                placeholderText: "粘贴视频或播放列表链接，回车加入队列"
                 selectByMouse: true
-                onAccepted: backend.probe(text)
+                onAccepted: root.addCurrent()
             }
             ToolButton {
                 icon.source: "../icons/paste.svg"
@@ -45,16 +54,21 @@ Pane {
                 enabled: urlField.text.trim().length > 0 && !backend.probing
                 onClicked: backend.probe(urlField.text)
             }
+            Button {
+                text: "添加"
+                icon.source: "../icons/download.svg"
+                highlighted: true
+                enabled: urlField.text.trim().length > 0
+                onClicked: root.addCurrent()
+            }
         }
 
-        // 解析中
         ProgressBar {
             Layout.fillWidth: true
             indeterminate: true
             visible: backend.probing
         }
 
-        // 解析结果
         RowLayout {
             Layout.fillWidth: true
             spacing: 14
@@ -125,16 +139,6 @@ Pane {
                 font.pixelSize: 12
             }
             Item { Layout.fillWidth: true }
-            Button {
-                text: "下载"
-                icon.source: "../icons/download.svg"
-                highlighted: true
-                enabled: urlField.text.trim().length > 0
-                onClicked: {
-                    backend.download(urlField.text, presetBox.currentIndex)
-                    urlField.clear()
-                }
-            }
         }
     }
 }
