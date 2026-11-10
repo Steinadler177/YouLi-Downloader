@@ -1,6 +1,7 @@
 """QProcess 封装：按行读取输出、UTF-8、可靠地结束整个进程树。"""
 from __future__ import annotations
 
+import os
 import subprocess
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
@@ -36,7 +37,8 @@ class ToolProcess(QObject):
     line = Signal(str)
     exited = Signal(int, str)  # 退出码, 错误摘要（成功时为空）
 
-    def __init__(self, program: str, args: list[str], parent: QObject | None = None, collect: bool = False):
+    def __init__(self, program: str, args: list[str], parent: QObject | None = None,
+                 collect: bool = False, cwd: str | None = None, path_prepend: str | None = None):
         super().__init__(parent)
         self.collect = collect
         self.stdout = b""
@@ -48,9 +50,13 @@ class ToolProcess(QObject):
         p = self._proc = QProcess(self)
         p.setProgram(program)
         p.setArguments(args)
-        env = QProcessEnvironment.systemEnvironment()
+        if cwd:
+            p.setWorkingDirectory(cwd)
+        env =QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONIOENCODING", "utf-8")
         env.insert("PYTHONUTF8", "1")
+        if path_prepend:
+            env.insert("PATH", path_prepend + os.pathsep + env.value("PATH"))
         p.setProcessEnvironment(env)
         if not collect:
             p.setProcessChannelMode(QProcess.MergedChannels)

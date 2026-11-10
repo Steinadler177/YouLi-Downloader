@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import itertools
 import json
+from pathlib import Path
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, Signal
 
+from . import bili
 from .command import DONE_TAG, ITEM_TAG, PROGRESS_TAG, download_args, probe_args
 from .config import Settings, find_tool
 from .presets import get_preset
@@ -62,15 +64,22 @@ class DownloadManager(QObject):
         self._queue_running = False
         self._work_status = "空闲"
         self._active_id: int | None = None
+        self._bili = bili.BiliServer(self)
+
+    def uses_bbdownt(self, url: str) -> bool:
+        """B 站链接且有 BBDownT 时走 BBDownT，否则回退 yt-dlp。"""
+        return self.settings.use_bbdownt and bili.is_bilibili(url) and bool(bili.bbdownt_path())
 
     # ---- public API ----
     def add(self, url: str, preset: int, title: str = "") -> int:
         """追加到队尾，状态=已添加；不自动开始。"""
         preset_obj = get_preset(preset)
-        t = _Task(
-            next(self._ids), url, preset, title,
-            params=" ".join(preset_obj.args),
-        )
+        if self.uses_bbdownt(url):
+            opts = " ".join(f"{k}={v}" for k, v in preset_obj.bili.items())
+            params = f"BBDownT {opts}".strip()
+        else:
+            params = " ".join(preset_obj.args)
+        t = _Task(next(self._ids), url, preset, title, params=params)
         self._tasks[t.id] = t
         self._order.append(t.id)
         self.taskAdded.emit(t.id, {
@@ -184,11 +193,15 @@ class DownloadManager(QObject):
     def failed_count(self) -> int:
         return sum(1 for t in self._tasks.values() if t.status in RETRYABLE)
 
+    def stop_bili_server(self) -> None:
+        self._bili.stop()
+
     def shutdown(self) -> None:
         self._queue_running = False
         for t in self._tasks.values():
             if t.job:
                 t.job.cancel()
+        self._bili.stop()
         self._set_work("空闲")
 
     def pump(self) -> None:
@@ -263,6 +276,10 @@ class DownloadManager(QObject):
                 self._set_work("空闲")
 
     def _start_analyze(self, t: _Task) -> None:
+        if self.uses_bbdownt(t.url):
+            self._start_bili_analyze(t)
+            return
+        t.extra.pop("bili_lines", None)
         ytdlp = find_tool("yt-dlp")
         if not ytdlp:
             self._set(t, status=STATUS_ERROR, message="找不到 yt-dlp.exe，请在设置中下载")
@@ -287,7 +304,9 @@ class DownloadManager(QObject):
             self._set(t, status=STATUS_CANCELLED, message="已取消")
         elif code == 0:
             try:
-                info = summarize_info(json.loads(decode_output(job.stdout)))
+                lines = t.extra.pop("bili_lines", None)
+                info = (bili.parse_info(lines) if lines is not None
+                        else summarize_info(json.loads(decode_output(job.stdout))))
                 title = info.get("title") or t.title or t.url
                 if not _title_ok(title):
                     title = t.title or t.url
@@ -301,7 +320,41 @@ class DownloadManager(QObject):
             self.remove(t.id)
         self.pump()
 
+    def _start_bili_analyze(self, t: _Task) -> None:
+        exe = bili.bbdownt_path()
+        self._active_id = t.id
+        lines: list[str] = []
+        t.extra["bili_lines"] = lines
+        job = t.job = ToolProcess(exe, bili.info_args(t.url, self.settings, find_tool("ffmpeg")),
+                                  self, cwd=str(Path(exe).parent))
+        job.line.connect(lines.append)
+        job.exited.connect(lambda code, err, t=t: self._on_analyze_exit(t, code, bili.strip_log(err)))
+        self._set(t, status=STATUS_ANALYZING, message="BBDownT 分析中…")
+        job.start()
+
+    def _start_bili_download(self, t: _Task) -> None:
+        self._active_id = t.id
+        job = t.job = bili.BiliJob(self._bili, t.url, get_preset(t.preset), self.settings, self)
+        job.update.connect(lambda fields, t=t: self._on_bili_update(t, dict(fields)))
+        job.exited.connect(lambda code, err, t=t: self._on_download_exit(t, code, err))
+        self._set(t, status=STATUS_DOWNLOADING, progress=-1.0, message="")
+        job.start()
+
+    def _on_bili_update(self, t: _Task, fields: dict) -> None:
+        state = fields.pop("state", None)
+        if "title" in fields:
+            fields.update(self._pick_title(t, fields.pop("title")))
+        if state == "processing":
+            fields["status"] = STATUS_PROCESSING
+        elif state == "downloading":
+            fields["status"] = STATUS_DOWNLOADING
+        if fields:
+            self._set(t, **fields)
+
     def _start_download(self, t: _Task) -> None:
+        if self.uses_bbdownt(t.url):
+            self._start_bili_download(t)
+            return
         ytdlp = find_tool("yt-dlp")
         if not ytdlp:
             self._set(t, status=STATUS_ERROR, message="找不到 yt-dlp.exe，请在设置中下载")

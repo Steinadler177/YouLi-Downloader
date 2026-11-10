@@ -48,6 +48,8 @@ class Settings:
     dark_theme: bool = True
     last_preset: int = 0
     extra_args: list[str] = field(default_factory=list)  # 高级：追加给 yt-dlp 的参数
+    use_bbdownt: bool = True           # B 站链接交给 BBDownT（找不到 BBDownT 时自动回退 yt-dlp）
+    bili_api: str = ""                 # "" = WEB / "tv" / "app"：BBDownT 解析接口
 
     @classmethod
     def load(cls) -> "Settings":

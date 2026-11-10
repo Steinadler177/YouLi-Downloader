@@ -9,13 +9,14 @@ from pathlib import Path
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
+from ..core import bili
 from ..core.command import probe_args
 from ..core.config import Settings, find_tool
 from ..core.manager import DownloadManager
 from ..core.presets import PRESETS
 from ..core.process import ToolProcess, decode_output
 from ..core.progress import summarize_info
-from ..core.updater import Updater
+from ..core.updater import BBDOWNT_URL, Updater
 from ..models.task_model import TaskModel
 
 
@@ -40,6 +41,7 @@ class Backend(QObject):
     toolsChanged = Signal()
     probeChanged = Signal()
     queueChanged = Signal()
+    loginChanged = Signal()
 
     def __init__(self, settings: Settings, parent: QObject | None = None):
         super().__init__(parent)
@@ -64,6 +66,24 @@ class Backend(QObject):
         self._updater.finished.connect(lambda _ok, msg: self.toast.emit(msg))
         self._updater.check_version()
 
+        # BBDownT（B 站后端）
+        self._bili_updater = Updater(self, tool=bili.TOOL, download_url=BBDOWNT_URL,
+                                     update_args=("--update",), locate=bili.bbdownt_path)
+        self._bili_status = ""
+        self._bili_updater.versionChanged.connect(lambda _v: self.toolsChanged.emit())
+        self._bili_updater.busyChanged.connect(lambda _b: self.toolsChanged.emit())
+        self._bili_updater.statusChanged.connect(self._on_bili_status)
+        self._bili_updater.finished.connect(lambda _ok, msg: (self.toast.emit(msg), self.loginChanged.emit()))
+        self._bili_updater.check_version()
+
+        self._login = bili.BiliLogin(self)
+        self._login_qr = ""
+        self._login_status = ""
+        self._login.qrReady.connect(self._on_login_qr)
+        self._login.status.connect(self._on_login_status)
+        self._login.finished.connect(self._on_login_finished)
+
+        self._probe_lines: list[str] | None = None
         self._probe: ToolProcess | None = None
         self._probe_info: dict = {}
         self._probe_url = ""
@@ -76,6 +96,8 @@ class Backend(QObject):
     downloadPlaylist = _setting("download_playlist", bool, settingsChanged)
     darkTheme = _setting("dark_theme", bool, settingsChanged)
     lastPreset = _setting("last_preset", int, settingsChanged)
+    useBbdownt = _setting("use_bbdownt", bool, settingsChanged)
+    biliApi = _setting("bili_api", str, settingsChanged)
 
     @Slot(QUrl)
     def setOutputDirUrl(self, url: QUrl):
@@ -124,6 +146,88 @@ class Backend(QObject):
         self._update_status = s
         self.toolsChanged.emit()
 
+    # ---------------- BBDownT / B 站 ----------------
+    @Property(str, notify=toolsChanged)
+    def bbdowntPath(self):
+        return bili.bbdownt_path() or ""
+
+    @Property(str, notify=toolsChanged)
+    def bbdowntVersion(self):
+        return self._bili_updater.version
+
+    @Property(bool, notify=toolsChanged)
+    def bbdowntUpdating(self):
+        return self._bili_updater.busy
+
+    @Property(str, notify=toolsChanged)
+    def bbdowntStatus(self):
+        return self._bili_status
+
+    @Slot()
+    def updateBbdownt(self):
+        if self._manager.running_count():
+            self.toast.emit("请等待当前任务结束后再更新 BBDownT")
+            return
+        self._manager.stop_bili_server()  # 服务进程占用 exe，更新前先停掉
+        self._bili_updater.update()
+
+    def _on_bili_status(self, s: str):
+        self._bili_status = bili.strip_log(s)
+        self.toolsChanged.emit()
+
+    @Property(bool, notify=loginChanged)
+    def biliLoggedIn(self):
+        return bili.is_logged_in()
+
+    @Property(bool, notify=loginChanged)
+    def loginRunning(self):
+        return self._login.running()
+
+    @Property(str, notify=loginChanged)
+    def loginQr(self):
+        return self._login_qr
+
+    @Property(str, notify=loginChanged)
+    def loginStatus(self):
+        return self._login_status
+
+    @Slot()
+    def biliLogin(self):
+        if not bili.bbdownt_path():
+            self.toast.emit("请先下载或放入 BBDownT.exe")
+            return
+        self._login_qr = ""
+        self._login_status = ""
+        self._login.start()
+        self.loginChanged.emit()
+
+    @Slot()
+    def cancelBiliLogin(self):
+        self._login.cancel()
+
+    @Slot()
+    def biliLogout(self):
+        bili.logout()
+        self._manager.stop_bili_server()  # 让服务进程下次重新加载登录状态
+        self.toast.emit("已退出 B 站登录")
+        self.loginChanged.emit()
+
+    def _on_login_qr(self, path: str):
+        self._login_qr = QUrl.fromLocalFile(path).toString()
+        self.loginChanged.emit()
+
+    def _on_login_status(self, s: str):
+        self._login_status = s
+        self.loginChanged.emit()
+
+    def _on_login_finished(self, ok: bool, msg: str):
+        self._login_qr = ""
+        self._login_status = msg
+        if ok:
+            self._manager.stop_bili_server()
+        self.toast.emit(msg)
+        self.loginChanged.emit()
+
     # ---------------- 解析链接（顶部预览，可选） ----------------
     @Property(bool, notify=probeChanged)
     def probing(self):
@@ -138,13 +242,24 @@ class Backend(QObject):
         url = url.strip()
         if not url:
             return
-        ytdlp = find_tool("yt-dlp")
-        if not ytdlp:
-            self.toast.emit("找不到 yt-dlp.exe，请先在设置里下载")
-            return
         if self._probe:
             self._probe.cancel()
-        p = self._probe = ToolProcess(ytdlp, probe_args(url, self._settings), self, collect=True)
+        if self._manager.uses_bbdownt(url):
+            exe = bili.bbdownt_path()
+            lines: list[str] = []
+            self._probe_lines = lines
+            p = self._probe = ToolProcess(exe, bili.info_args(url, self._settings, find_tool("ffmpeg")),
+                                          self, cwd=str(Path(exe).parent))
+            p.line.connect(lines.append)
+        else:
+            ytdlp = find_tool("yt-dlp")
+            if not ytdlp:
+                self._probe = None
+                self.toast.emit("找不到 yt-dlp.exe，请先在设置里下载")
+                self.probeChanged.emit()
+                return
+            self._probe_lines = None
+            p = self._probe = ToolProcess(ytdlp, probe_args(url, self._settings), self, collect=True)
         self._probe_url = url
         self._probe_info = {}
         p.exited.connect(lambda code, err, p=p: self._on_probe_done(p, code, err))
@@ -165,13 +280,16 @@ class Backend(QObject):
         self._probe = None
         if code == 0:
             try:
-                info = summarize_info(json.loads(decode_output(p.stdout)))
+                if self._probe_lines is not None:
+                    info = bili.parse_info(self._probe_lines)
+                else:
+                    info = summarize_info(json.loads(decode_output(p.stdout)))
                 info["url"] = self._probe_url
                 self._probe_info = info
             except ValueError:
                 self.toast.emit("解析失败：返回内容不是 JSON")
         elif not p.cancelled:
-            self.toast.emit(f"解析失败：{err}")
+            self.toast.emit(f"解析失败：{bili.strip_log(err)}")
         self.probeChanged.emit()
 
     # ---------------- 下载队列 ----------------
@@ -282,6 +400,7 @@ class Backend(QObject):
     def shutdown(self):
         if self._probe:
             self._probe.cancel()
+        self._login.cancel()
         self._manager.shutdown()
 
     def _notify_task(self, task_id: int, fields: dict):

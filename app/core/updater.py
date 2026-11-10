@@ -1,15 +1,22 @@
-"""外部工具管理：查询 yt-dlp 版本、自更新（yt-dlp -U）、缺失时从官方 Release 下载。"""
+"""外部工具管理：查询版本、自更新、缺失时从官方 Release 下载。
+
+同一个类同时管理 yt-dlp（`-U`）和 BBDownT（`--update`）。
+"""
 from __future__ import annotations
 
 import os
+import re
 
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
 from .config import BIN_DIR, find_tool
-from .process import ToolProcess
+from .process import ToolProcess, decode_output
 
 YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+BBDOWNT_URL = "https://github.com/LOVAHE/BBDownT/releases/latest/download/BBDownT_win-x64.exe"
+
+_VERSION_RE = re.compile(r"\d+(?:\.\d+)+")  # 去掉 BBDownT 的 "+<commit>" 后缀
 
 
 class Updater(QObject):
@@ -18,8 +25,14 @@ class Updater(QObject):
     statusChanged = Signal(str)           # 进度/结果文本
     finished = Signal(bool, str)
 
-    def __init__(self, parent: QObject | None = None):
+    def __init__(self, parent: QObject | None = None, tool: str = "yt-dlp",
+                 download_url: str = YTDLP_URL, update_args: tuple[str, ...] = ("-U",),
+                 locate=None):
         super().__init__(parent)
+        self.tool = tool
+        self.locate = locate or (lambda: find_tool(tool))
+        self.download_url = download_url
+        self.update_args = list(update_args)
         self.version = ""
         self.busy = False
         self._proc: ToolProcess | None = None
@@ -27,30 +40,36 @@ class Updater(QObject):
         self._reply: QNetworkReply | None = None
 
     def check_version(self) -> None:
-        exe = find_tool("yt-dlp")
+        exe = self.locate()
         if not exe:
             self._set_version("")
             return
         p = ToolProcess(exe, ["--version"], self, collect=True)
         p.exited.connect(lambda code, _err, p=p: (
-            self._set_version(p.stdout.decode(errors="replace").strip() if code == 0 else "?"),
+            self._set_version(self._parse_version(decode_output(p.stdout)) if code == 0 else "?"),
             p.deleteLater()))
         p.start()
+
+    @staticmethod
+    def _parse_version(text: str) -> str:
+        first = text.strip().splitlines()[0] if text.strip() else ""
+        m = _VERSION_RE.search(first)
+        return m.group(0) if m else first
 
     def update(self) -> None:
         if self.busy:
             return
-        exe = find_tool("yt-dlp")
+        exe = self.locate()
         if exe:
             self._run_self_update(exe)
         else:
             self._download()
 
-    # ---- yt-dlp -U ----
+    # ---- 自更新 ----
     def _run_self_update(self, exe: str) -> None:
         self._set_busy(True)
-        self.statusChanged.emit("正在检查更新…")
-        p = self._proc = ToolProcess(exe, ["-U"], self)
+        self.statusChanged.emit(f"正在检查 {self.tool} 更新…")
+        p = self._proc = ToolProcess(exe, self.update_args, self)
         lines: list[str] = []
         p.line.connect(lambda s: (lines.append(s), self.statusChanged.emit(s)))
         p.exited.connect(lambda code, err: self._done(code == 0, lines[-1] if lines and code == 0 else err))
@@ -60,10 +79,10 @@ class Updater(QObject):
     def _download(self) -> None:
         BIN_DIR.mkdir(parents=True, exist_ok=True)
         self._set_busy(True)
-        self.statusChanged.emit("正在下载 yt-dlp.exe…")
-        self._part = BIN_DIR / "yt-dlp.exe.part"
+        self.statusChanged.emit(f"正在下载 {self.tool}.exe…")
+        self._part = BIN_DIR / f"{self.tool}.exe.part"
         self._fh = open(self._part, "wb")
-        req = QNetworkRequest(QUrl(YTDLP_URL))
+        req = QNetworkRequest(QUrl(self.download_url))
         req.setAttribute(QNetworkRequest.RedirectPolicyAttribute,
                          QNetworkRequest.NoLessSafeRedirectPolicy)
         r = self._reply = self._net.get(req)
@@ -73,7 +92,7 @@ class Updater(QObject):
 
     def _on_dl_progress(self, got: int, total: int) -> None:
         if total > 0:
-            self.statusChanged.emit(f"正在下载 yt-dlp.exe… {got * 100 // total}%")
+            self.statusChanged.emit(f"正在下载 {self.tool}.exe… {got * 100 // total}%")
 
     def _on_dl_finished(self) -> None:
         r, self._reply = self._reply, None
@@ -81,8 +100,8 @@ class Updater(QObject):
         self._fh.close()
         ok = r.error() == QNetworkReply.NoError and self._part.stat().st_size > 1_000_000
         if ok:
-            os.replace(self._part, BIN_DIR / "yt-dlp.exe")
-            self._done(True, "yt-dlp.exe 已下载到 bin/")
+            os.replace(self._part, BIN_DIR / f"{self.tool}.exe")
+            self._done(True, f"{self.tool}.exe 已下载到 bin/")
         else:
             self._part.unlink(missing_ok=True)
             self._done(False, f"下载失败：{r.errorString()}")
