@@ -99,10 +99,10 @@ ApplicationWindow {
                 onClicked: backend.startQueue()
             }
             Button {
-                text: "停止"
+                text: "停止队列"
                 flat: true
                 icon.source: "icons/stop.svg"
-                visible: backend.queueRunning
+                enabled: backend.canStopQueue
                 onClicked: backend.stopQueue()
             }
             Button {

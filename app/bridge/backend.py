@@ -199,6 +199,10 @@ class Backend(QObject):
     def workStatus(self):
         return self._manager.work_status()
 
+    @Property(bool, notify=queueChanged)
+    def canStopQueue(self):
+        return self._manager.can_stop()
+
     @Slot(str, int)
     def addToQueue(self, url: str, preset: int):
         """回车 / 添加：只入队，不立刻下载。"""
@@ -220,8 +224,11 @@ class Backend(QObject):
 
     @Slot()
     def stopQueue(self):
+        if not self._manager.can_stop():
+            self.toast.emit("当前没有运行中的队列")
+            return
         self._manager.stop_queue()
-        self.toast.emit("已停止接新任务")
+        self.toast.emit("已停止队列")
 
     @Slot()
     def retryFailed(self):

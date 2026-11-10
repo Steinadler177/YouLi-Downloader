@@ -98,11 +98,24 @@ class DownloadManager(QObject):
         return True
 
     def stop_queue(self) -> None:
-        """停止接新任务；正在进行的分析/下载仍会跑完（可单独 cancel）。"""
-        if not self._queue_running:
-            return
+        """停止队列：不再接后续任务，并取消当前正在分析/下载的任务。"""
+        was_running = self._queue_running or self.running_count() > 0
         self._queue_running = False
-        self.runningChanged.emit(False)
+        # 取消当前忙碌任务
+        active = self._tasks.get(self._active_id) if self._active_id else None
+        if active and active.status in BUSY and active.job:
+            active.job.cancel()
+        else:
+            for t in self._tasks.values():
+                if t.status in BUSY and t.job:
+                    t.job.cancel()
+                    break
+        if was_running:
+            self.runningChanged.emit(False)
+            self._set_work("已停止队列")
+
+    def can_stop(self) -> bool:
+        return self._queue_running or self.running_count() > 0
 
     def retry_failed(self) -> int:
         """把失败/取消的任务重置为已添加，并启动队列。"""
