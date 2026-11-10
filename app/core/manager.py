@@ -70,6 +70,17 @@ class DownloadManager(QObject):
         """B 站链接且有 BBDownT 时走 BBDownT，否则回退 yt-dlp。"""
         return self.settings.use_bbdownt and bili.is_bilibili(url) and bool(bili.bbdownt_path())
 
+    def source_label(self, url: str) -> str:
+        """任务来源标签：实际后端或常见站点名。"""
+        if self.uses_bbdownt(url):
+            return "B站"
+        low = url.lower()
+        if "youtube.com" in low or "youtu.be" in low:
+            return "YouTube"
+        if bili.is_bilibili(url):
+            return "B站"  # 无 BBDownT 时仍标站点，实际走 yt-dlp
+        return "yt-dlp"
+
     # ---- public API ----
     def add(self, url: str, preset: int, title: str = "") -> int:
         """追加到队尾，状态=已添加；不自动开始。"""
@@ -79,6 +90,7 @@ class DownloadManager(QObject):
             params = f"BBDownT {opts}".strip()
         else:
             params = " ".join(preset_obj.args)
+        source = self.source_label(url)
         t = _Task(next(self._ids), url, preset, title, params=params)
         self._tasks[t.id] = t
         self._order.append(t.id)
@@ -90,12 +102,44 @@ class DownloadManager(QObject):
             "progress": 0.0,
             "preset": preset_obj.name,
             "params": t.params,
+            "source": source,
             "message": "",
         })
         # 队列已在跑时，新任务会在当前忙完后由 pump 接上
         if self._queue_running:
             self.pump()
         return t.id
+
+    def export_incomplete(self) -> list[dict]:
+        """未完成任务快照（关闭时写入 queue.json）。进行中的也按已添加保存。"""
+        keep = (STATUS_ADDED, STATUS_ANALYZING, STATUS_ANALYZED,
+                STATUS_DOWNLOADING, STATUS_PROCESSING, STATUS_ERROR, STATUS_CANCELLED)
+        out = []
+        for tid in self._order:
+            t = self._tasks.get(tid)
+            if not t or t.status not in keep:
+                continue
+            if t.status == STATUS_DONE:
+                continue
+            out.append({
+                "url": t.url,
+                "preset": t.preset,
+                "title": t.title if _title_ok(t.title) else "",
+            })
+        return out
+
+    def restore(self, items: list[dict]) -> int:
+        """启动时恢复为已添加，不自动开始。"""
+        n = 0
+        for item in items:
+            url = (item.get("url") or "").strip()
+            if not url:
+                continue
+            preset = int(item.get("preset") or 0)
+            title = item.get("title") or ""
+            self.add(url, preset, title)
+            n += 1
+        return n
 
     def start_queue(self) -> bool:
         """开始/继续依次处理队列中的待办任务。"""

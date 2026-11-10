@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -11,13 +12,20 @@ from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 from ..core import bili
 from ..core.command import probe_args
-from ..core.config import Settings, find_tool
+from ..core.config import QUEUE_PATH, Settings, find_tool
 from ..core.manager import DownloadManager
 from ..core.presets import PRESETS
 from ..core.process import ToolProcess, decode_output
 from ..core.progress import summarize_info
 from ..core.updater import BBDOWNT_URL, Updater
 from ..models.task_model import TaskModel
+
+# 批量粘贴时拆分链接：按空白/换行，保留 http(s) 与常见短链/B 站号
+_URL_SPLIT = re.compile(r"[\s]+")
+_LOOKS_LIKE_URL = re.compile(
+    r"^(?:https?://\S+|www\.\S+|BV[0-9A-Za-z]{10}|av\d+|ep\d+|ss\d+)$",
+    re.IGNORECASE,
+)
 
 
 def _setting(name: str, typ, notify):
@@ -66,7 +74,6 @@ class Backend(QObject):
         self._updater.finished.connect(lambda _ok, msg: self.toast.emit(msg))
         self._updater.check_version()
 
-        # BBDownT（B 站后端）
         self._bili_updater = Updater(self, tool=bili.TOOL, download_url=BBDOWNT_URL,
                                      update_args=("--update",), locate=bili.bbdownt_path)
         self._bili_status = ""
@@ -88,16 +95,46 @@ class Backend(QObject):
         self._probe_info: dict = {}
         self._probe_url = ""
 
+        self._restore_queue()
+
     # ---------------- 设置 ----------------
     outputDir = _setting("output_dir", str, settingsChanged)
     filenameTemplate = _setting("filename_template", str, settingsChanged)
     cookiesBrowser = _setting("cookies_browser", str, settingsChanged)
-    maxConcurrent = _setting("max_concurrent", int, settingsChanged)
     downloadPlaylist = _setting("download_playlist", bool, settingsChanged)
     darkTheme = _setting("dark_theme", bool, settingsChanged)
     lastPreset = _setting("last_preset", int, settingsChanged)
     useBbdownt = _setting("use_bbdownt", bool, settingsChanged)
     biliApi = _setting("bili_api", str, settingsChanged)
+    autoStartQueue = _setting("auto_start_queue", bool, settingsChanged)
+
+    @Property(int, notify=settingsChanged)
+    def windowX(self):
+        return self._settings.window_x
+
+    @Property(int, notify=settingsChanged)
+    def windowY(self):
+        return self._settings.window_y
+
+    @Property(int, notify=settingsChanged)
+    def windowW(self):
+        return self._settings.window_w
+
+    @Property(int, notify=settingsChanged)
+    def windowH(self):
+        return self._settings.window_h
+
+    @Property(bool, notify=settingsChanged)
+    def windowMaximized(self):
+        return self._settings.window_maximized
+
+    @Slot(int, int, int, int, bool)
+    def saveWindowGeometry(self, x: int, y: int, w: int, h: int, maximized: bool):
+        s = self._settings
+        s.window_x, s.window_y = x, y
+        s.window_w, s.window_h = max(w, 720), max(h, 520)
+        s.window_maximized = maximized
+        s.save()
 
     @Slot(QUrl)
     def setOutputDirUrl(self, url: QUrl):
@@ -168,7 +205,7 @@ class Backend(QObject):
         if self._manager.running_count():
             self.toast.emit("请等待当前任务结束后再更新 BBDownT")
             return
-        self._manager.stop_bili_server()  # 服务进程占用 exe，更新前先停掉
+        self._manager.stop_bili_server()
         self._bili_updater.update()
 
     def _on_bili_status(self, s: str):
@@ -208,7 +245,7 @@ class Backend(QObject):
     @Slot()
     def biliLogout(self):
         bili.logout()
-        self._manager.stop_bili_server()  # 让服务进程下次重新加载登录状态
+        self._manager.stop_bili_server()
         self.toast.emit("已退出 B 站登录")
         self.loginChanged.emit()
 
@@ -242,6 +279,10 @@ class Backend(QObject):
         url = url.strip()
         if not url:
             return
+        # 多行时只解析第一行，便于预览
+        urls = self.parseUrls(url)
+        if urls:
+            url = urls[0]
         if self._probe:
             self._probe.cancel()
         if self._manager.uses_bbdownt(url):
@@ -321,17 +362,39 @@ class Backend(QObject):
     def canStopQueue(self):
         return self._manager.can_stop()
 
+    @Slot(str, result="QStringList")
+    def parseUrls(self, text: str):
+        """按空白拆分并去重，返回看起来像链接的条目。"""
+        seen: set[str] = set()
+        out: list[str] = []
+        for part in _URL_SPLIT.split((text or "").strip()):
+            u = part.strip().strip("<>\"'")
+            if not u or not _LOOKS_LIKE_URL.match(u):
+                continue
+            if u.startswith("www."):
+                u = "https://" + u
+            key = u.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(u)
+        return out
+
     @Slot(str, int)
-    def addToQueue(self, url: str, preset: int):
-        """回车 / 添加：只入队，不立刻下载。"""
-        url = url.strip()
-        if not url:
+    def addToQueue(self, text: str, preset: int):
+        """回车 / 添加：支持多行批量入队。"""
+        urls = self.parseUrls(text)
+        if not urls:
             self.toast.emit("请先粘贴视频链接")
             return
-        title = self._probe_info.get("title", "") if self._probe_info.get("url") == url else ""
         self.lastPreset = preset
-        self._manager.add(url, preset, title)
-        self.toast.emit("已加入队列")
+        for url in urls:
+            title = self._probe_info.get("title", "") if self._probe_info.get("url") == url else ""
+            self._manager.add(url, preset, title)
+        n = len(urls)
+        self.toast.emit(f"已加入队列 {n} 个任务" if n > 1 else "已加入队列")
+        if self._settings.auto_start_queue:
+            self._manager.start_queue()
 
     @Slot()
     def startQueue(self):
@@ -358,7 +421,6 @@ class Backend(QObject):
 
     @Slot(str, int)
     def download(self, url: str, preset: int):
-        """兼容旧调用：等同于加入队列。"""
         self.addToQueue(url, preset)
 
     @Slot(int)
@@ -397,10 +459,45 @@ class Backend(QObject):
     def clipboardText(self):
         return QGuiApplication.clipboard().text().strip()
 
+    @Slot(str)
+    def copyText(self, text: str):
+        QGuiApplication.clipboard().setText(text or "")
+        if text:
+            self.toast.emit("已复制到剪贴板")
+
+    @Slot(int)
+    def copyTaskError(self, task_id: int):
+        msg = self._model.get(task_id).get("message") or ""
+        if not msg:
+            self.toast.emit("没有可复制的错误信息")
+            return
+        self.copyText(msg)
+
+    def _restore_queue(self) -> None:
+        try:
+            data = json.loads(QUEUE_PATH.read_text("utf-8"))
+        except (OSError, ValueError):
+            return
+        if isinstance(data, list) and data:
+            n = self._manager.restore(data)
+            if n:
+                self.toast.emit(f"已恢复 {n} 个未完成任务")
+
+    def _save_queue(self) -> None:
+        items = self._manager.export_incomplete()
+        try:
+            if items:
+                QUEUE_PATH.write_text(json.dumps(items, ensure_ascii=False, indent=2), "utf-8")
+            elif QUEUE_PATH.exists():
+                QUEUE_PATH.unlink()
+        except OSError:
+            pass
+
     def shutdown(self):
         if self._probe:
             self._probe.cancel()
         self._login.cancel()
+        self._save_queue()
         self._manager.shutdown()
 
     def _notify_task(self, task_id: int, fields: dict):

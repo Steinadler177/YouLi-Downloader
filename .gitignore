@@ -5,6 +5,7 @@ __pycache__/
 build/
 dist/
 config.json
+queue.json
 # bin/ 只提交说明文件：其余是外部工具和运行时文件，
 # 其中 BBDownT.data 是 B 站登录 Cookie，绝不能提交
 bin/*
@@ -14,3 +15,5 @@ Download/
 download/
 **/Download/**
 **/download/**
+AGENTS.md
+CLAUDE.md

@@ -5,7 +5,7 @@ from PySide6.QtCore import QAbstractListModel, QByteArray, QModelIndex, Property
 
 ROLES = [
     "taskId", "url", "title", "status", "progress", "speed", "eta",
-    "size", "message", "filepath", "preset", "params", "item", "seq",
+    "size", "message", "filepath", "preset", "params", "item", "seq", "source",
 ]
 _DEFAULTS = {"taskId": 0, "progress": 0.0, "seq": 0}
 _ROLE_IDS = {name: Qt.UserRole + 1 + i for i, name in enumerate(ROLES)}

@@ -38,18 +38,26 @@ def find_tool(name: str) -> str | None:
     return shutil.which(name)
 
 
+QUEUE_PATH = APP_DIR / "queue.json"
+
+
 @dataclass
 class Settings:
     output_dir: str = str(Path.home() / "Downloads")
     filename_template: str = "%(title)s [%(id)s].%(ext)s"
     cookies_browser: str = ""          # "" / firefox / chrome / edge / brave ...
-    max_concurrent: int = 2
     download_playlist: bool = False
     dark_theme: bool = True
     last_preset: int = 0
     extra_args: list[str] = field(default_factory=list)  # 高级：追加给 yt-dlp 的参数
     use_bbdownt: bool = True           # B 站链接交给 BBDownT（找不到 BBDownT 时自动回退 yt-dlp）
     bili_api: str = ""                 # "" = WEB / "tv" / "app"：BBDownT 解析接口
+    auto_start_queue: bool = False     # 添加任务后自动开始队列
+    window_x: int = -1
+    window_y: int = -1
+    window_w: int = 1100
+    window_h: int = 740
+    window_maximized: bool = False
 
     @classmethod
     def load(cls) -> "Settings":
