@@ -35,6 +35,7 @@ _BILI_RE = re.compile(
     r"|^(?:BV[0-9A-Za-z]{10}|av\d+|ep\d+|ss\d+)$",
     re.IGNORECASE,
 )
+_QR_TEXT_RE = re.compile(r"[\s?▀-▟]+")   # 字符画二维码的一行
 _LOG_PREFIX = re.compile(r"^\[\d{4}-\d{2}-\d{2} [\d:.]+\]\s*-\s*")
 _MEDIA_EXT = (".mp4", ".mkv", ".flv", ".m4a", ".flac", ".mp3", ".aac", ".eac3", ".mp4a")
 _AUDIO_EXT = (".m4a", ".flac", ".aac", ".mp3", ".eac3")
@@ -441,10 +442,12 @@ class BiliLogin(QObject):
 
     def _on_line(self, raw: str) -> None:
         line = strip_log(raw)
-        if not line or set(line) <= set("█▀▄ "):
-            return  # 控制台打印的字符二维码
+        if not line or _QR_TEXT_RE.fullmatch(line):
+            return  # 控制台打印的字符二维码（GBK 编码不了的方块会变成 "?"）
         if "登录成功" in line:
             self._ok = True
+        if line.startswith("生成二维码成功"):
+            line = "等待扫码…"  # 原文提示去打开 qrcode.png，界面里已经直接显示了
         self.status.emit(line)
 
     def _check_qr(self) -> None:

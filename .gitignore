@@ -4,8 +4,10 @@ __pycache__/
 build/
 dist/
 config.json
-bin/*.exe
-bin/*.part
+# bin/ 只提交说明文件：其余是外部工具和运行时文件，
+# 其中 BBDownT.data 是 B 站登录 Cookie，绝不能提交
+bin/*
+!bin/README.txt
 # 下载输出目录（任意大小写）
 Download/
 download/
