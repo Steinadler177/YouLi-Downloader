@@ -3,12 +3,13 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import QtQuick.Window
 import "components"
 
 ApplicationWindow {
     id: win
-    width: 1100
-    height: 740
+    width: backend.windowW > 0 ? backend.windowW : 1100
+    height: backend.windowH > 0 ? backend.windowH : 740
     minimumWidth: 720
     minimumHeight: 520
     visible: true
@@ -21,6 +22,26 @@ ApplicationWindow {
     readonly property color subtleText: Material.theme === Material.Dark ? "#9aa5b1" : "#5f6b77"
     readonly property color headerBg: Material.theme === Material.Dark ? "#252a31" : "#eef2f5"
 
+    // 表头与 QueueRow 共用
+    QueueColumns { id: queueColumns }
+
+    Component.onCompleted: {
+        if (backend.windowX >= 0 && backend.windowY >= 0) {
+            x = backend.windowX
+            y = backend.windowY
+        }
+        if (backend.windowMaximized)
+            showMaximized()
+    }
+
+    onClosing: {
+        const maximized = visibility === Window.Maximized
+        // 最大化时保存恢复前的普通几何更稳妥；这里保存当前（系统会在还原后给出正常值）
+        backend.saveWindowGeometry(x, y, width, height, maximized)
+    }
+
+    BiliLoginDialog { id: headerLoginDialog }
+
     // ---------- 顶栏 ----------
     header: Pane {
         padding: 12
@@ -29,7 +50,7 @@ ApplicationWindow {
         Material.elevation: 0
         RowLayout {
             anchors.fill: parent
-            spacing: 8
+            spacing: 10
             Image {
                 source: "icons/app.svg"
                 sourceSize: Qt.size(28, 28)
@@ -44,6 +65,30 @@ ApplicationWindow {
                 text: backend.ytdlpVersion ? "yt-dlp " + backend.ytdlpVersion : "未找到 yt-dlp"
                 color: backend.ytdlpVersion ? win.subtleText : Material.color(Material.Red)
                 font.pixelSize: 12
+            }
+            Label {
+                text: backend.bbdowntVersion ? "BBDownT " + backend.bbdowntVersion : "未找到 BBDownT"
+                color: backend.bbdowntPath ? win.subtleText : Material.color(Material.Orange)
+                font.pixelSize: 12
+            }
+            Label {
+                text: backend.biliLoggedIn ? "B站 已登录" : "B站 未登录"
+                color: backend.biliLoggedIn ? Material.color(Material.Teal) : win.subtleText
+                font.pixelSize: 12
+                font.underline: !backend.biliLoggedIn && backend.bbdowntPath !== ""
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: (!backend.biliLoggedIn && backend.bbdowntPath !== "")
+                                 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    enabled: !backend.biliLoggedIn && backend.bbdowntPath !== ""
+                    hoverEnabled: true
+                    onClicked: {
+                        backend.biliLogin()
+                        headerLoginDialog.open()
+                    }
+                    ToolTip.visible: containsMouse && !backend.biliLoggedIn
+                    ToolTip.text: "点击扫码登录"
+                }
             }
             ToolButton {
                 icon.source: "icons/theme.svg"
@@ -120,7 +165,6 @@ ApplicationWindow {
             }
         }
 
-        // 表头
         Rectangle {
             Layout.fillWidth: true
             height: 36
@@ -128,16 +172,40 @@ ApplicationWindow {
             color: win.headerBg
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 10
+                anchors.leftMargin: queueColumns.margin
                 anchors.rightMargin: 6
-                spacing: 8
-                Label { Layout.preferredWidth: 40; text: "#"; color: win.subtleText; font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter }
-                Label { Layout.preferredWidth: 180; Layout.fillWidth: true; text: "视频标题"; color: win.subtleText; font.pixelSize: 12 }
-                Label { Layout.preferredWidth: 160; Layout.fillWidth: true; text: "视频地址"; color: win.subtleText; font.pixelSize: 12 }
-                Label { Layout.preferredWidth: 90; text: "下载画质"; color: win.subtleText; font.pixelSize: 12 }
-                Label { Layout.preferredWidth: 140; Layout.fillWidth: true; text: "参数"; color: win.subtleText; font.pixelSize: 12 }
-                Label { Layout.preferredWidth: 130; text: "状态"; color: win.subtleText; font.pixelSize: 12 }
-                Label { Layout.preferredWidth: 96; text: "操作"; color: win.subtleText; font.pixelSize: 12 }
+                spacing: queueColumns.spacing
+                Label {
+                    Layout.preferredWidth: queueColumns.seq
+                    text: "#"
+                    color: win.subtleText
+                    font.pixelSize: 12
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: "视频标题"
+                    color: win.subtleText
+                    font.pixelSize: 12
+                }
+                Label {
+                    Layout.preferredWidth: queueColumns.preset
+                    text: "下载画质"
+                    color: win.subtleText
+                    font.pixelSize: 12
+                }
+                Label {
+                    Layout.preferredWidth: queueColumns.status
+                    text: "状态"
+                    color: win.subtleText
+                    font.pixelSize: 12
+                }
+                Label {
+                    Layout.preferredWidth: queueColumns.actions
+                    text: "操作"
+                    color: win.subtleText
+                    font.pixelSize: 12
+                }
             }
         }
 
@@ -165,37 +233,9 @@ ApplicationWindow {
                 color: win.subtleText
             }
         }
-
-        // 当前工作状态（队列表下方）
-        Pane {
-            Layout.fillWidth: true
-            padding: 10
-            leftPadding: 14
-            rightPadding: 14
-            Material.elevation: 1
-            Material.roundedScale: Material.SmallScale
-            RowLayout {
-                anchors.fill: parent
-                spacing: 10
-                Label {
-                    text: "工作状态"
-                    color: win.subtleText
-                    font.pixelSize: 12
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: backend.workStatus
-                    elide: Text.ElideMiddle
-                    font.pixelSize: 13
-                    color: backend.queueRunning
-                           ? Material.color(Material.Teal)
-                           : (Material.theme === Material.Dark ? "#e8eef4" : "#1f2933")
-                }
-            }
-        }
     }
 
-    // ---------- 底栏：保存目录 ----------
+    // ---------- 合并底栏：工作状态 + 保存目录 ----------
     footer: Pane {
         padding: 8
         leftPadding: 20
@@ -203,12 +243,30 @@ ApplicationWindow {
         Material.elevation: 2
         RowLayout {
             anchors.fill: parent
-            spacing: 8
-            Label { text: "保存到"; color: win.subtleText }
+            spacing: 12
+            Label {
+                text: "工作状态"
+                color: win.subtleText
+                font.pixelSize: 12
+            }
+            Label {
+                Layout.preferredWidth: 280
+                Layout.fillWidth: true
+                Layout.maximumWidth: parent.width * 0.45
+                text: backend.workStatus
+                elide: Text.ElideMiddle
+                font.pixelSize: 13
+                color: backend.queueRunning
+                       ? Material.color(Material.Teal)
+                       : (Material.theme === Material.Dark ? "#e8eef4" : "#1f2933")
+            }
+            ToolSeparator {}
+            Label { text: "保存到"; color: win.subtleText; font.pixelSize: 12 }
             Label {
                 Layout.fillWidth: true
                 text: backend.outputDir
                 elide: Text.ElideMiddle
+                font.pixelSize: 12
             }
             Button {
                 text: "打开"
@@ -246,12 +304,26 @@ ApplicationWindow {
         function onToast(msg) { toast.show(msg) }
     }
 
+    // 焦点不在输入框时，Ctrl+V 批量入队
+    Shortcut {
+        sequences: [StandardKey.Paste]
+        enabled: !urlCard.inputFocused
+        onActivated: urlCard.addFromClipboard()
+    }
+
     DropArea {
         anchors.fill: parent
         onDropped: (drop) => {
-            const text = drop.hasUrls ? drop.urls[0].toString() : drop.text
+            let chunks = []
+            if (drop.hasUrls) {
+                for (let i = 0; i < drop.urls.length; i++)
+                    chunks.push(drop.urls[i].toString())
+            }
+            if (drop.text)
+                chunks.push(drop.text)
+            const text = chunks.join("\n").trim()
             if (text) {
-                urlCard.setUrl(text.trim())
+                urlCard.addText(text)
                 drop.accept()
             }
         }

@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// 链接输入 + 解析结果 + 预设选择；回车/添加 = 入队
+// 链接输入 + 解析结果 + 预设选择；回车/添加 = 入队（支持多行）
 Pane {
     id: root
     padding: 16
@@ -11,20 +11,33 @@ Pane {
     Material.roundedScale: Material.MediumScale
 
     readonly property var info: backend.probeInfo
-    readonly property bool hasInfo: info && info.title !== undefined && info.url === urlField.text.trim()
+    readonly property bool hasInfo: !!(info && info.title !== undefined && info.url
+                                       && urlField.text.indexOf(info.url) >= 0)
+    readonly property bool hasThumb: hasInfo && info.thumbnail && info.thumbnail.length > 0
+    property bool inputFocused: urlField.activeFocus
 
     function setUrl(text) {
         urlField.text = text
-        backend.probe(text)
+        const urls = backend.parseUrls(text)
+        if (urls.length === 1)
+            backend.probe(urls[0])
+    }
+
+    function addText(text) {
+        const urls = backend.parseUrls(text)
+        if (!urls.length)
+            return
+        backend.addToQueue(text, presetBox.currentIndex)
+        urlField.clear()
+        backend.clearProbe()
     }
 
     function addCurrent() {
-        const url = urlField.text.trim()
-        if (!url)
-            return
-        backend.addToQueue(url, presetBox.currentIndex)
-        urlField.clear()
-        backend.clearProbe()
+        addText(urlField.text)
+    }
+
+    function addFromClipboard() {
+        addText(backend.clipboardText())
     }
 
     ColumnLayout {
@@ -38,7 +51,7 @@ Pane {
             TextField {
                 id: urlField
                 Layout.fillWidth: true
-                placeholderText: "粘贴视频或播放列表链接，回车加入队列"
+                placeholderText: "粘贴视频或播放列表链接（可多行），回车加入队列"
                 selectByMouse: true
                 onAccepted: root.addCurrent()
             }
@@ -46,13 +59,19 @@ Pane {
                 icon.source: "../icons/paste.svg"
                 onClicked: root.setUrl(backend.clipboardText())
                 ToolTip.visible: hovered
-                ToolTip.text: "从剪贴板粘贴并解析"
+                ToolTip.text: "从剪贴板粘贴并解析（单链）"
             }
             Button {
                 text: "解析"
                 icon.source: "../icons/search.svg"
                 enabled: urlField.text.trim().length > 0 && !backend.probing
-                onClicked: backend.probe(urlField.text)
+                onClicked: {
+                    const urls = backend.parseUrls(urlField.text)
+                    if (urls.length)
+                        backend.probe(urls[0])
+                    else
+                        backend.probe(urlField.text)
+                }
             }
             Button {
                 text: "添加"
@@ -75,6 +94,7 @@ Pane {
             visible: root.hasInfo
 
             Rectangle {
+                visible: root.hasThumb
                 Layout.preferredWidth: 192
                 Layout.preferredHeight: 108
                 radius: 8
@@ -82,7 +102,7 @@ Pane {
                 color: Material.theme === Material.Dark ? "#2b3138" : "#e6eaee"
                 Image {
                     anchors.fill: parent
-                    source: root.hasInfo ? root.info.thumbnail : ""
+                    source: root.hasThumb ? root.info.thumbnail : ""
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     opacity: status === Image.Ready ? 1 : 0

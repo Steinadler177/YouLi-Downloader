@@ -21,21 +21,31 @@ Item {
     required property string preset
     required property string params
     required property string item
+    required property string source
 
     readonly property bool busy: status === "analyzing" || status === "downloading" || status === "processing"
     readonly property bool failed: status === "error" || status === "cancelled"
+    readonly property bool downloading: status === "downloading" || status === "processing"
 
     width: ListView.view ? ListView.view.width : 800
-    height: 52
+    height: 58
 
-    function statusHint() {
-        if (status === "downloading" || status === "processing") {
-            if (progress < 0) return message || "准备中…"
-            const pct = Math.round(progress * 100) + "%"
-            return [pct, size, speed, eta ? "剩余 " + eta : ""].filter(s => s).join("  ")
+    function progressText() {
+        if (status === "analyzing")
+            return "正在分析…"
+        if (status === "processing")
+            return "合并/转码…"
+        if (status === "downloading") {
+            if (progress < 0)
+                return message || "准备中…"
+            const parts = [Math.round(progress * 100) + "%"]
+            if (size) parts.push(size)
+            if (speed) parts.push(speed)
+            if (eta) parts.push("剩余 " + eta)
+            return parts.join("  ·  ")
         }
-        if (status === "analyzing") return "正在分析…"
-        if (status === "error") return message
+        if (failed)
+            return message
         return message
     }
 
@@ -49,60 +59,105 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 10
+        anchors.leftMargin: win.queueColumns.margin
         anchors.rightMargin: 6
-        spacing: 8
+        anchors.topMargin: 6
+        anchors.bottomMargin: 6
+        spacing: win.queueColumns.spacing
 
         Label {
-            Layout.preferredWidth: 40
+            Layout.preferredWidth: win.queueColumns.seq
             text: String(row.seq)
             horizontalAlignment: Text.AlignHCenter
             color: win.subtleText
         }
-        Label {
-            Layout.preferredWidth: 180
+
+        RowLayout {
             Layout.fillWidth: true
-            text: row.title || "（待分析）"
-            elide: Text.ElideRight
-            font.weight: Font.Medium
+            Layout.minimumWidth: 120
+            spacing: 8
+
+            Rectangle {
+                visible: row.source.length > 0
+                Layout.preferredWidth: sourceLabel.implicitWidth + 12
+                Layout.preferredHeight: 22
+                radius: 4
+                color: {
+                    if (row.source === "B站")
+                        return Qt.alpha(Material.color(Material.Pink), 0.18)
+                    if (row.source === "YouTube")
+                        return Qt.alpha(Material.color(Material.Red), 0.16)
+                    return Qt.alpha(Material.color(Material.BlueGrey), 0.18)
+                }
+                Label {
+                    id: sourceLabel
+                    anchors.centerIn: parent
+                    text: row.source
+                    font.pixelSize: 11
+                    font.weight: Font.Medium
+                    color: {
+                        if (row.source === "B站")
+                            return Material.color(Material.Pink)
+                        if (row.source === "YouTube")
+                            return Material.color(Material.Red)
+                        return Material.color(Material.BlueGrey)
+                    }
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                text: row.title || "（待分析）"
+                elide: Text.ElideRight
+                font.weight: Font.Medium
+                ToolTip.visible: titleHover.hovered
+                ToolTip.delay: 400
+                ToolTip.text: "地址：" + row.url + (row.params ? "\n参数：" + row.params : "")
+                HoverHandler { id: titleHover }
+            }
         }
+
         Label {
-            Layout.preferredWidth: 160
-            Layout.fillWidth: true
-            text: row.url
-            elide: Text.ElideMiddle
-            color: win.subtleText
-            font.pixelSize: 12
-        }
-        Label {
-            Layout.preferredWidth: 90
+            Layout.preferredWidth: win.queueColumns.preset
             text: row.preset
             elide: Text.ElideRight
             font.pixelSize: 12
         }
-        Label {
-            Layout.preferredWidth: 140
-            Layout.fillWidth: true
-            text: row.params
-            elide: Text.ElideRight
-            color: win.subtleText
-            font.pixelSize: 11
-        }
+
         ColumnLayout {
-            Layout.preferredWidth: 130
-            spacing: 2
-            StatusChip { status: row.status }
-            Label {
-                visible: row.statusHint().length > 0
+            Layout.preferredWidth: win.queueColumns.status
+            Layout.fillWidth: false
+            spacing: 4
+
+            RowLayout {
                 Layout.fillWidth: true
-                text: row.statusHint()
-                color: row.failed ? Material.color(Material.Red) : win.subtleText
-                font.pixelSize: 10
-                elide: Text.ElideRight
+                spacing: 8
+                StatusChip { status: row.status }
+                Label {
+                    Layout.fillWidth: true
+                    visible: row.progressText().length > 0
+                    text: row.progressText()
+                    color: row.failed ? Material.color(Material.Red) : win.subtleText
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                    ToolTip.visible: row.failed && errHover.hovered && row.message.length > 0
+                    ToolTip.delay: 300
+                    ToolTip.text: row.message
+                    HoverHandler { id: errHover }
+                }
+            }
+            ProgressBar {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 5
+                from: 0; to: 1
+                value: Math.max(0, row.progress)
+                visible: row.downloading || row.status === "analyzing"
+                indeterminate: row.status === "analyzing" || row.status === "processing"
+                               || (row.status === "downloading" && row.progress < 0)
             }
         }
+
         RowLayout {
-            Layout.preferredWidth: 96
+            Layout.preferredWidth: win.queueColumns.actions
             spacing: 0
             ToolButton {
                 visible: row.busy
@@ -115,6 +170,13 @@ Item {
                 icon.source: "../icons/refresh.svg"
                 onClicked: backend.retry(row.taskId)
                 ToolTip.visible: hovered; ToolTip.text: "重试"
+            }
+            ToolButton {
+                visible: row.failed && row.message.length > 0
+                text: "复制"
+                font.pixelSize: 11
+                onClicked: backend.copyTaskError(row.taskId)
+                ToolTip.visible: hovered; ToolTip.text: "复制错误信息"
             }
             ToolButton {
                 visible: row.status === "done"
@@ -131,14 +193,19 @@ Item {
         }
     }
 
-    ProgressBar {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 2
-        from: 0; to: 1
-        value: Math.max(0, row.progress)
-        visible: row.busy && (row.status === "downloading" || row.status === "processing")
-        indeterminate: row.status === "processing" || (row.status === "downloading" && row.progress < 0)
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.RightButton
+        onClicked: (mouse) => {
+            if (row.failed && row.message)
+                errMenu.popup()
+        }
+    }
+    Menu {
+        id: errMenu
+        MenuItem {
+            text: "复制错误信息"
+            onTriggered: backend.copyTaskError(row.taskId)
+        }
     }
 }
