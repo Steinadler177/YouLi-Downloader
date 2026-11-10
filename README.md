@@ -15,8 +15,10 @@ uv pip install --python .venv/Scripts/python.exe -r requirements.txt
 .venv/Scripts/python.exe run.pyw
 ```
 
-首次运行若没有 `bin/yt-dlp.exe` / `bin/BBDownT.exe`，在 **设置** 里点对应的“下载”按钮获取；ffmpeg 放进 `bin/` 或系统 PATH。
-B 站会员清晰度需要在 **设置 → B 站 → 扫码登录**。
+首次运行若没有 `bin/yt-dlp.exe` / `bin/BBDownT.exe`，在 **设置 → 外部工具 / B 站** 里点对应的“下载”按钮获取；ffmpeg 放进 `bin/` 或系统 PATH。
+B 站会员清晰度可在顶栏点「B站 未登录」，或在 **设置 → B 站 → 扫码登录**。
+
+队列支持多行粘贴 / 拖入批量添加、添加后自动开始（设置开关）、关闭后恢复未完成任务（`queue.json`）。
 
 ## 结构
 
@@ -37,9 +39,10 @@ app/
   bridge/backend.py     暴露给 QML 的 `backend` 对象
   ui/                   纯 QML，改界面不用动 Python
     Main.qml
-    components/         UrlCard、QueueRow、StatusChip、SettingsDialog、BiliLoginDialog、Toast
+    components/         UrlCard、QueueRow、QueueColumns、StatusChip、SettingsDialog、BiliLoginDialog、Toast
     icons/              SVG 图标（高 DPI 下清晰）
 ```
+
 
 ## 与 yt-dlp 的通信
 
