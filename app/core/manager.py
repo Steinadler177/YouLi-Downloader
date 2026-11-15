@@ -10,7 +10,7 @@ from PySide6.QtCore import QObject, Signal
 
 from . import bili
 from .command import DONE_TAG, ITEM_TAG, PROGRESS_TAG, download_args, probe_args
-from .config import Settings, find_tool
+from .config import Settings, find_tool, safe_dirname
 from .presets import get_preset
 from .process import ToolProcess, decode_output
 from .progress import parse_progress, summarize_info
@@ -50,6 +50,7 @@ def _title_ok(title: str) -> bool:
 
 class DownloadManager(QObject):
     taskAdded = Signal(int, dict)
+    taskInserted = Signal(int, int, dict)  # row, task_id, fields — 播放列表展开用
     taskChanged = Signal(int, dict)
     taskRemoved = Signal(int)
     runningChanged = Signal(bool)
@@ -121,11 +122,16 @@ class DownloadManager(QObject):
                 continue
             if t.status == STATUS_DONE:
                 continue
-            out.append({
+            item = {
                 "url": t.url,
                 "preset": t.preset,
                 "title": t.title if _title_ok(t.title) else "",
-            })
+            }
+            if t.extra.get("output_dir"):
+                item["output_dir"] = t.extra["output_dir"]
+            if t.extra.get("select_page") is not None:
+                item["select_page"] = t.extra["select_page"]
+            out.append(item)
         return out
 
     def restore(self, items: list[dict]) -> int:
@@ -137,7 +143,13 @@ class DownloadManager(QObject):
                 continue
             preset = int(item.get("preset") or 0)
             title = item.get("title") or ""
-            self.add(url, preset, title)
+            tid = self.add(url, preset, title)
+            t = self._tasks.get(tid)
+            if t:
+                if item.get("output_dir"):
+                    t.extra["output_dir"] = item["output_dir"]
+                if item.get("select_page") is not None:
+                    t.extra["select_page"] = str(item["select_page"])
             n += 1
         return n
 
@@ -286,6 +298,8 @@ class DownloadManager(QObject):
             t.status = fields["status"]
         if fields.get("title"):
             t.title = fields["title"]
+        if fields.get("url"):
+            t.url = fields["url"]
         self.taskChanged.emit(t.id, fields)
         self._refresh_work(t, fields)
 
@@ -320,6 +334,11 @@ class DownloadManager(QObject):
                 self._set_work("空闲")
 
     def _start_analyze(self, t: _Task) -> None:
+        # 播放列表展开后的子任务已带标题/分P，跳过二次分析
+        if t.extra.get("skip_analyze"):
+            self._set(t, status=STATUS_ANALYZED, message="分析完成")
+            self.pump()
+            return
         if self.uses_bbdownt(t.url):
             self._start_bili_analyze(t)
             return
@@ -349,12 +368,36 @@ class DownloadManager(QObject):
         elif code == 0:
             try:
                 lines = t.extra.pop("bili_lines", None)
-                info = (bili.parse_info(lines) if lines is not None
+                info = (bili.parse_info(lines, t.url) if lines is not None
                         else summarize_info(json.loads(decode_output(job.stdout))))
                 title = info.get("title") or t.title or t.url
                 if not _title_ok(title):
                     title = t.title or t.url
-                self._set(t, status=STATUS_ANALYZED, title=title, message="分析完成")
+                entries = info.get("entries") or []
+                if info.get("isPlaylist") and len(entries) > 1:
+                    self._active_id = None
+                    if remove_after:
+                        self.remove(t.id)
+                        self.pump()
+                        return
+                    self._expand_playlist(t, title, entries)
+                    return
+                if info.get("isPlaylist") and len(entries) == 1:
+                    # 单条列表：直接改成该条目 URL，落到子目录
+                    e = entries[0]
+                    t.url = e.get("url") or t.url
+                    title = e.get("title") or title
+                    if e.get("page") is not None:
+                        t.extra["select_page"] = str(e["page"])
+                    out = str(Path(self.settings.output_dir) / safe_dirname(info.get("title") or title))
+                    try:
+                        Path(out).mkdir(parents=True, exist_ok=True)
+                        t.extra["output_dir"] = out
+                    except OSError:
+                        pass
+                    self._set(t, status=STATUS_ANALYZED, title=title, url=t.url, message="分析完成")
+                else:
+                    self._set(t, status=STATUS_ANALYZED, title=title, message="分析完成")
             except ValueError:
                 self._set(t, status=STATUS_ERROR, message="分析失败：返回内容不是 JSON")
         else:
@@ -364,13 +407,83 @@ class DownloadManager(QObject):
             self.remove(t.id)
         self.pump()
 
+    def _expand_playlist(self, parent: _Task, playlist_title: str, entries: list[dict]) -> None:
+        """把播放列表任务替换为逐条子任务，保存到以列表名命名的子目录。"""
+        out_dir = str(Path(self.settings.output_dir) / safe_dirname(playlist_title))
+        try:
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            out_dir = self.settings.output_dir
+
+        try:
+            row = self._order.index(parent.id)
+        except ValueError:
+            row = len(self._order)
+        preset = parent.preset
+        source = self.source_label(parent.url)
+
+        # 移除占位的父任务
+        self._order = [i for i in self._order if i != parent.id]
+        del self._tasks[parent.id]
+        self.taskRemoved.emit(parent.id)
+
+        for i, entry in enumerate(entries):
+            url = (entry.get("url") or "").strip()
+            if not url:
+                continue
+            title = entry.get("title") or f"第 {i + 1} 项"
+            self._insert_child(
+                row + i, url, preset, title, source,
+                output_dir=out_dir,
+                select_page=entry.get("page"),
+            )
+
+        self._set_work(f"已展开播放列表：{playlist_title}（{len(entries)} 个）")
+        self.pump()
+
+    def _insert_child(self, row: int, url: str, preset: int, title: str, source: str,
+                      output_dir: str = "", select_page=None) -> int:
+        preset_obj = get_preset(preset)
+        if self.uses_bbdownt(url):
+            opts = " ".join(f"{k}={v}" for k, v in preset_obj.bili.items())
+            params = f"BBDownT {opts}".strip()
+            if select_page:
+                params = f"{params} P{select_page}".strip()
+        else:
+            params = " ".join(preset_obj.args)
+        t = _Task(next(self._ids), url, preset, title, params=params,
+                  status=STATUS_ADDED)
+        t.extra["skip_analyze"] = True
+        if output_dir:
+            t.extra["output_dir"] = output_dir
+        if select_page is not None:
+            t.extra["select_page"] = str(select_page)
+        row = max(0, min(row, len(self._order)))
+        self._tasks[t.id] = t
+        self._order.insert(row, t.id)
+        fields = {
+            "taskId": t.id,
+            "url": url,
+            "title": title or url,
+            "status": STATUS_ADDED,
+            "progress": 0.0,
+            "preset": preset_obj.name,
+            "params": t.params,
+            "source": source,
+            "message": "",
+        }
+        self.taskInserted.emit(row, t.id, fields)
+        return t.id
+
     def _start_bili_analyze(self, t: _Task) -> None:
         exe = bili.bbdownt_path()
         self._active_id = t.id
         lines: list[str] = []
         t.extra["bili_lines"] = lines
-        job = t.job = ToolProcess(exe, bili.info_args(t.url, self.settings, find_tool("ffmpeg")),
-                                  self, cwd=str(Path(exe).parent))
+        # list_pages=True：拉全部分P标题，便于展开队列
+        job = t.job = ToolProcess(
+            exe, bili.info_args(t.url, self.settings, find_tool("ffmpeg"), list_pages=True),
+            self, cwd=str(Path(exe).parent))
         job.line.connect(lines.append)
         job.exited.connect(lambda code, err, t=t: self._on_analyze_exit(t, code, bili.strip_log(err)))
         self._set(t, status=STATUS_ANALYZING, message="BBDownT 分析中…")
@@ -378,7 +491,11 @@ class DownloadManager(QObject):
 
     def _start_bili_download(self, t: _Task) -> None:
         self._active_id = t.id
-        job = t.job = bili.BiliJob(self._bili, t.url, get_preset(t.preset), self.settings, self)
+        out = t.extra.get("output_dir") or None
+        page = t.extra.get("select_page")
+        job = t.job = bili.BiliJob(
+            self._bili, t.url, get_preset(t.preset), self.settings, self,
+            output_dir=out, select_page=page)
         job.update.connect(lambda fields, t=t: self._on_bili_update(t, dict(fields)))
         job.exited.connect(lambda code, err, t=t: self._on_download_exit(t, code, err))
         self._set(t, status=STATUS_DOWNLOADING, progress=-1.0, message="")
@@ -405,7 +522,14 @@ class DownloadManager(QObject):
             self.pump()
             return
         self._active_id = t.id
-        args = download_args(t.url, get_preset(t.preset), self.settings, find_tool("ffmpeg"))
+        out = t.extra.get("output_dir") or None
+        if out:
+            try:
+                Path(out).mkdir(parents=True, exist_ok=True)
+            except OSError:
+                out = None
+        args = download_args(t.url, get_preset(t.preset), self.settings, find_tool("ffmpeg"),
+                             output_dir=out)
         job = t.job = ToolProcess(ytdlp, args, self)
         job.line.connect(lambda line, t=t: self._on_line(t, line))
         job.exited.connect(lambda code, err, t=t: self._on_download_exit(t, code, err))

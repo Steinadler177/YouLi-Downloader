@@ -30,6 +30,14 @@ BIN_DIR = APP_DIR / "bin"
 CONFIG_PATH = APP_DIR / "config.json"
 
 
+def safe_dirname(name: str, fallback: str = "playlist") -> str:
+    """把播放列表标题收成可用的 Windows 文件夹名。"""
+    bad = '<>:"/\\|?*\0'
+    cleaned = "".join("_" if c in bad else c for c in (name or "").strip()).rstrip(" .")
+    cleaned = " ".join(cleaned.split())  # 压缩空白
+    return (cleaned or fallback)[:80]
+
+
 def find_tool(name: str) -> str | None:
     """优先使用 bin/ 下的外部工具，找不到再回退到系统 PATH。"""
     local = BIN_DIR / f"{name}.exe"

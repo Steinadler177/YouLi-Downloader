@@ -46,6 +46,16 @@ class TaskModel(QAbstractListModel):
         self.endInsertRows()
         self.countChanged.emit()
 
+    @Slot(int, int, dict)
+    def insert(self, row: int, task_id: int, fields: dict):
+        """在指定行插入（播放列表展开时保持顺序）。"""
+        row = max(0, min(int(row), len(self._rows)))
+        self.beginInsertRows(QModelIndex(), row, row)
+        self._rows.insert(row, {"taskId": task_id, **fields})
+        self.endInsertRows()
+        self.countChanged.emit()
+        self._refresh_seq()
+
     @Slot(int, dict)
     def update(self, task_id: int, fields: dict):
         row = self._find(task_id)
@@ -65,11 +75,14 @@ class TaskModel(QAbstractListModel):
         del self._rows[row]
         self.endRemoveRows()
         self.countChanged.emit()
-        # 序号依赖行号，移除后刷新剩余行的 seq
-        if self._rows:
-            top = self.index(0)
-            bottom = self.index(len(self._rows) - 1)
-            self.dataChanged.emit(top, bottom, [_ROLE_IDS["seq"]])
+        self._refresh_seq()
+
+    def _refresh_seq(self) -> None:
+        if not self._rows:
+            return
+        top = self.index(0)
+        bottom = self.index(len(self._rows) - 1)
+        self.dataChanged.emit(top, bottom, [_ROLE_IDS["seq"]])
 
     def get(self, task_id: int) -> dict:
         row = self._find(task_id)

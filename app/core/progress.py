@@ -52,10 +52,40 @@ def parse_progress(raw: str) -> dict | None:
     }
 
 
+def _entry_url(entry: dict) -> str:
+    """从 flat-playlist 的一条 entry 取出可下载的 URL。"""
+    if not isinstance(entry, dict):
+        return ""
+    for key in ("webpage_url", "url", "original_url"):
+        u = entry.get(key)
+        if isinstance(u, str) and u.startswith("http"):
+            return u
+    eid = entry.get("id")
+    if not eid:
+        return ""
+    ie = (entry.get("ie_key") or entry.get("extractor_key") or entry.get("extractor") or "").lower()
+    if "youtube" in ie:
+        return f"https://www.youtube.com/watch?v={eid}"
+    if str(eid).startswith("http"):
+        return str(eid)
+    return ""
+
+
 def summarize_info(info: dict) -> dict:
-    """把 yt-dlp -J 的结果压缩成界面需要的字段。"""
+    """把 yt-dlp -J 的结果压缩成界面需要的字段；播放列表附带 entries。"""
     if info.get("_type") == "playlist":
-        entries = info.get("entries") or []
+        raw = info.get("entries") or []
+        entries = []
+        for e in raw:
+            if not e:
+                continue
+            url = _entry_url(e)
+            if not url:
+                continue
+            entries.append({
+                "url": url,
+                "title": (e.get("title") or "").strip() or url,
+            })
         return {
             "title": info.get("title") or "播放列表",
             "uploader": info.get("uploader") or info.get("channel") or "",
@@ -64,6 +94,7 @@ def summarize_info(info: dict) -> dict:
             "isPlaylist": True,
             "count": len(entries),
             "heights": "",
+            "entries": entries,
         }
     heights = sorted(
         {f["height"] for f in info.get("formats") or [] if f.get("height") and f.get("vcodec") != "none"},
@@ -77,6 +108,7 @@ def summarize_info(info: dict) -> dict:
         "isPlaylist": False,
         "count": 1,
         "heights": " / ".join(f"{h}p" for h in heights[:8]),
+        "entries": [],
     }
 
 

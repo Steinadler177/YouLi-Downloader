@@ -57,10 +57,12 @@ class Backend(QObject):
         self._model = TaskModel(self)
         self._manager = DownloadManager(settings, self)
         self._manager.taskAdded.connect(self._model.add)
+        self._manager.taskInserted.connect(self._model.insert)
         self._manager.taskChanged.connect(self._model.update)
         self._manager.taskRemoved.connect(self._model.remove)
         self._manager.taskChanged.connect(self._notify_task)
         self._manager.taskAdded.connect(lambda *_: self.queueChanged.emit())
+        self._manager.taskInserted.connect(lambda *_: self.queueChanged.emit())
         self._manager.taskChanged.connect(lambda *_: self.queueChanged.emit())
         self._manager.taskRemoved.connect(lambda *_: self.queueChanged.emit())
         self._manager.runningChanged.connect(lambda _r: self.queueChanged.emit())
@@ -322,7 +324,7 @@ class Backend(QObject):
         if code == 0:
             try:
                 if self._probe_lines is not None:
-                    info = bili.parse_info(self._probe_lines)
+                    info = bili.parse_info(self._probe_lines, self._probe_url)
                 else:
                     info = summarize_info(json.loads(decode_output(p.stdout)))
                 info["url"] = self._probe_url

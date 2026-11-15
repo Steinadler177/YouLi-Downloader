@@ -74,29 +74,44 @@ def page_selection(url: str, settings: Settings) -> str:
     return "1"
 
 
-def info_args(url: str, settings: Settings, ffmpeg: str | None) -> list[str]:
-    # -hs：不打印每条音视频流；-p 1：只解析一个分P，减少请求（降低触发风控的概率）
-    args = [url.strip(), "-info", "-hs", "-p", "1", *_api_flags(settings)]
+def info_args(url: str, settings: Settings, ffmpeg: str | None,
+              list_pages: bool = False) -> list[str]:
+    # -hs：不打印每条音视频流。list_pages=False 时 -p 1 减少请求；展开队列时要拉全部分P标题。
+    args = [url.strip(), "-info", "-hs", *_api_flags(settings)]
+    if not list_pages:
+        args += ["-p", "1"]
     if ffmpeg:
         args += ["--ffmpeg-path", ffmpeg]
     return args
 
 
-def parse_info(lines: list[str]) -> dict:
-    """从 -info 输出里取标题和分 P 数，返回与 summarize_info 相同结构的字典。"""
-    title, pages, listed = "", 0, 0
+def parse_info(lines: list[str], url: str = "") -> dict:
+    """从 -info 输出里取标题和分 P，返回与 summarize_info 相同结构（含 entries）。"""
+    title, pages = "", 0
+    page_titles: dict[int, str] = {}
     for raw in lines:
         line = strip_log(raw)
         if line.startswith("视频标题:"):
             title = line.split(":", 1)[1].strip()
         elif m := re.match(r"^共计\s*(\d+)\s*个分P", line):
             pages = int(m.group(1))
-        elif re.match(r"^P\d+\s*[:：]", line):
-            listed += 1  # 分P列表可能被 "......" 截断，仅在没有“共计”行时使用
-    pages = pages or listed
+        elif m := re.match(r"^P(\d+)\s*[:：]\s*(.*)$", line):
+            idx = int(m.group(1))
+            page_titles[idx] = (m.group(2) or "").strip() or f"P{idx}"
+    if not pages:
+        pages = max(page_titles) if page_titles else 1
+    entries = []
+    if pages > 1 and url:
+        for i in range(1, pages + 1):
+            entries.append({
+                "url": url,
+                "title": page_titles.get(i) or f"P{i}",
+                "page": str(i),
+            })
     return {
         "title": title, "uploader": "", "duration": "", "thumbnail": "",
         "isPlaylist": pages > 1, "count": max(pages, 1), "heights": "",
+        "entries": entries,
     }
 
 
@@ -235,12 +250,15 @@ class BiliJob(QObject):
     POLL_MS = 700
 
     def __init__(self, server: BiliServer, url: str, preset: Preset, settings: Settings,
-                 parent: QObject | None = None):
+                 parent: QObject | None = None, output_dir: str | None = None,
+                 select_page: str | None = None):
         super().__init__(parent)
         self.server = server
         self.url = url.strip()
         self.preset = preset
         self.settings = settings
+        self.output_dir = output_dir or settings.output_dir
+        self.select_page = select_page  # 显式指定分P时优先生效
         self.cancelled = False
         self._finished = False
         self._task_id = ""
@@ -266,20 +284,24 @@ class BiliJob(QObject):
 
     # ---- internal ----
     def _options(self) -> dict:
-        opts = {"Url": self.url, "WorkDir": self.settings.output_dir, **self.preset.bili}
+        opts = {"Url": self.url, "WorkDir": self.output_dir, **self.preset.bili}
         if self.settings.bili_api == "tv":
             opts["UseTvApi"] = True
         elif self.settings.bili_api == "app":
             opts["UseAppApi"] = True
-        pages = page_selection(self.url, self.settings)
-        if pages:
-            opts["SelectPage"] = pages
+        if self.select_page is not None:
+            if self.select_page:  # 空字符串表示交给 BBDownT（链接里已有 ?p=）
+                opts["SelectPage"] = self.select_page
+        else:
+            pages = page_selection(self.url, self.settings)
+            if pages:
+                opts["SelectPage"] = pages
         return opts  # 注意：服务器拒绝 FFmpegPath 等路径选项（HTTP 400），ffmpeg 通过 PATH 提供
 
     def _submit(self) -> None:
         if self.cancelled:
             return
-        Path(self.settings.output_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
         self.server.request("POST", "/add-task", self._options(), self._on_submitted)
 
     def _on_submitted(self, status: int, data, err: str) -> None:
@@ -310,7 +332,7 @@ class BiliJob(QObject):
             self._timer.stop()
             if data.get("IsSuccessful"):
                 # SavePaths 是相对 WorkDir（保存目录）的路径
-                base = Path(self.settings.output_dir)
+                base = Path(self.output_dir)
                 paths = [str(p if (p := Path(raw)).is_absolute() else base / p)
                          for raw in data.get("SavePaths") or []]
                 self._on_success(paths, title)

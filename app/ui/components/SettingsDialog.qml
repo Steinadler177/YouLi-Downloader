@@ -70,6 +70,8 @@ Dialog {
                         Switch {
                             checked: backend.downloadPlaylist
                             onToggled: backend.downloadPlaylist = checked
+                            ToolTip.visible: hovered
+                            ToolTip.text: "对带 list= 的单视频链接：开=展开整表；关=只下当前条。纯播放列表链接总会展开为队列中的多条任务。"
                         }
 
                         Label { text: "深色主题" }

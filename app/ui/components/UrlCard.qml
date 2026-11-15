@@ -153,9 +153,11 @@ Pane {
                 currentIndex: backend.lastPreset
             }
             Label {
-                visible: root.hasInfo && root.info.isPlaylist && !backend.downloadPlaylist
-                text: "提示：设置中未开启“下载整个播放列表”"
-                color: Material.color(Material.Orange)
+                visible: root.hasInfo && root.info.isPlaylist
+                text: root.info.isPlaylist
+                      ? ("播放列表：入队后会展开为 " + root.info.count + " 条，并保存到列表名子目录")
+                      : ""
+                color: Material.color(Material.Teal)
                 font.pixelSize: 12
             }
             Item { Layout.fillWidth: true }

@@ -22,8 +22,8 @@ ApplicationWindow {
     readonly property color subtleText: Material.theme === Material.Dark ? "#9aa5b1" : "#5f6b77"
     readonly property color headerBg: Material.theme === Material.Dark ? "#252a31" : "#eef2f5"
 
-    // 表头与 QueueRow 共用
-    QueueColumns { id: queueColumns }
+    // 表头与 QueueRow 共用（必须是 property，子组件 id 在 QueueRow 里访问不到）
+    readonly property QtObject queueColumns: QueueColumns {}
 
     Component.onCompleted: {
         if (backend.windowX >= 0 && backend.windowY >= 0) {

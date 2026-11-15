@@ -19,6 +19,7 @@ uv pip install --python .venv/Scripts/python.exe -r requirements.txt
 B 站会员清晰度可在顶栏点「B站 未登录」，或在 **设置 → B 站 → 扫码登录**。
 
 队列支持多行粘贴 / 拖入批量添加、添加后自动开始（设置开关）、关闭后恢复未完成任务（`queue.json`）。
+播放列表（YouTube 列表页 / B 站多 P 等）入队分析后会**展开成多条任务**，并保存到下载目录下以列表名命名的子文件夹。
 
 ## 结构
 
