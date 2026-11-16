@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
@@ -19,11 +20,21 @@ BBDOWNT_URL = "https://github.com/LOVAHE/BBDownT/releases/latest/download/BBDown
 _VERSION_RE = re.compile(r"\d+(?:\.\d+)+")  # 去掉 BBDownT 的 "+<commit>" 后缀
 
 
+def exe_mtime(path: str | None) -> float:
+    if not path:
+        return 0.0
+    try:
+        return Path(path).stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 class Updater(QObject):
     versionChanged = Signal(str)          # "" 表示未找到
     busyChanged = Signal(bool)
     statusChanged = Signal(str)           # 进度/结果文本
     finished = Signal(bool, str)
+    versionCached = Signal(str, float)    # version, exe mtime — 供写入 config
 
     def __init__(self, parent: QObject | None = None, tool: str = "yt-dlp",
                  download_url: str = YTDLP_URL, update_args: tuple[str, ...] = ("-U",),
@@ -39,16 +50,36 @@ class Updater(QObject):
         self._net = QNetworkAccessManager(self)
         self._reply: QNetworkReply | None = None
 
+    def load_cache(self, version: str, mtime: float) -> bool:
+        """若缓存命中（exe 仍在且 mtime 一致），立刻填版本，返回 True。"""
+        exe = self.locate()
+        if not exe or not version:
+            return False
+        if abs(exe_mtime(exe) - mtime) > 0.5:
+            return False
+        self._set_version(version)
+        return True
+
     def check_version(self) -> None:
         exe = self.locate()
         if not exe:
             self._set_version("")
+            self.versionCached.emit("", 0.0)
             return
         p = ToolProcess(exe, ["--version"], self, collect=True)
-        p.exited.connect(lambda code, _err, p=p: (
-            self._set_version(self._parse_version(decode_output(p.stdout)) if code == 0 else "?"),
-            p.deleteLater()))
+        p.exited.connect(lambda code, _err, p=p, exe=exe: self._on_version(p, code, exe))
         p.start()
+
+    def _on_version(self, p: ToolProcess, code: int, exe: str) -> None:
+        try:
+            if code == 0:
+                ver = self._parse_version(decode_output(p.stdout))
+            else:
+                ver = "?"
+            self._set_version(ver)
+            self.versionCached.emit(ver, exe_mtime(exe))
+        finally:
+            p.deleteLater()
 
     @staticmethod
     def _parse_version(text: str) -> str:

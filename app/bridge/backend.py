@@ -7,7 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 from ..core import bili
@@ -74,7 +74,9 @@ class Backend(QObject):
         self._updater.busyChanged.connect(lambda _b: self.toolsChanged.emit())
         self._updater.statusChanged.connect(self._on_update_status)
         self._updater.finished.connect(lambda _ok, msg: self.toast.emit(msg))
-        self._updater.check_version()
+        self._updater.versionCached.connect(self._persist_ytdlp_version)
+        # 先用缓存填顶栏，避免启动时同步挤占磁盘（yt-dlp.exe 是单文件，--version ≈1s）
+        self._updater.load_cache(settings.cached_ytdlp_version, settings.cached_ytdlp_mtime)
 
         self._bili_updater = Updater(self, tool=bili.TOOL, download_url=BBDOWNT_URL,
                                      update_args=("--update",), locate=bili.bbdownt_path)
@@ -83,7 +85,8 @@ class Backend(QObject):
         self._bili_updater.busyChanged.connect(lambda _b: self.toolsChanged.emit())
         self._bili_updater.statusChanged.connect(self._on_bili_status)
         self._bili_updater.finished.connect(lambda _ok, msg: (self.toast.emit(msg), self.loginChanged.emit()))
-        self._bili_updater.check_version()
+        self._bili_updater.versionCached.connect(self._persist_bbdownt_version)
+        self._bili_updater.load_cache(settings.cached_bbdownt_version, settings.cached_bbdownt_mtime)
 
         self._login = bili.BiliLogin(self)
         self._login_qr = ""
@@ -96,8 +99,35 @@ class Backend(QObject):
         self._probe: ToolProcess | None = None
         self._probe_info: dict = {}
         self._probe_url = ""
+        self._tools_warmed = False
 
-        self._restore_queue()
+        self._restore_queue(silent=True)
+
+    @Slot()
+    def warmTools(self):
+        """窗口显示后再查真实版本（可延后调用，避免拖慢首帧）。"""
+        if self._tools_warmed:
+            return
+        self._tools_warmed = True
+        # 错开两个单文件工具的自解压，减轻磁盘尖峰
+        self._updater.check_version()
+        QTimer.singleShot(400, self._bili_updater.check_version)
+
+    def _persist_ytdlp_version(self, version: str, mtime: float) -> None:
+        s = self._settings
+        if s.cached_ytdlp_version == version and abs(s.cached_ytdlp_mtime - mtime) < 0.5:
+            return
+        s.cached_ytdlp_version = version
+        s.cached_ytdlp_mtime = mtime
+        s.save()
+
+    def _persist_bbdownt_version(self, version: str, mtime: float) -> None:
+        s = self._settings
+        if s.cached_bbdownt_version == version and abs(s.cached_bbdownt_mtime - mtime) < 0.5:
+            return
+        s.cached_bbdownt_version = version
+        s.cached_bbdownt_mtime = mtime
+        s.save()
 
     # ---------------- 设置 ----------------
     outputDir = _setting("output_dir", str, settingsChanged)
@@ -441,6 +471,14 @@ class Backend(QObject):
     def clearFinished(self):
         self._manager.clear_finished()
 
+    @Slot()
+    def clearQueue(self):
+        n = self._manager.clear_all()
+        if n == 0:
+            self.toast.emit("队列为空")
+        else:
+            self.toast.emit(f"已清除队列（{n} 个任务）")
+
     @Slot(int)
     def openFile(self, task_id: int):
         path = self._model.get(task_id).get("filepath")
@@ -475,14 +513,14 @@ class Backend(QObject):
             return
         self.copyText(msg)
 
-    def _restore_queue(self) -> None:
+    def _restore_queue(self, silent: bool = False) -> None:
         try:
             data = json.loads(QUEUE_PATH.read_text("utf-8"))
         except (OSError, ValueError):
             return
         if isinstance(data, list) and data:
             n = self._manager.restore(data)
-            if n:
+            if n and not silent:
                 self.toast.emit(f"已恢复 {n} 个未完成任务")
 
     def _save_queue(self) -> None:

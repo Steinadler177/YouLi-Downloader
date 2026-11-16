@@ -66,6 +66,11 @@ class Settings:
     window_w: int = 1100
     window_h: int = 740
     window_maximized: bool = False
+    # 启动加速：缓存外部工具版本，避免一开机就跑 yt-dlp --version（单文件自解压很慢）
+    cached_ytdlp_version: str = ""
+    cached_ytdlp_mtime: float = 0.0
+    cached_bbdownt_version: str = ""
+    cached_bbdownt_mtime: float = 0.0
 
     @classmethod
     def load(cls) -> "Settings":
@@ -76,8 +81,15 @@ class Settings:
         defaults = cls()
         kwargs = {}
         for f in fields(cls):
-            if f.name in data and isinstance(data[f.name], type(getattr(defaults, f.name))):
-                kwargs[f.name] = data[f.name]
+            if f.name not in data:
+                continue
+            val = data[f.name]
+            expected = type(getattr(defaults, f.name))
+            # JSON 数字常为 int，float 字段也要收下
+            if expected is float and isinstance(val, (int, float)):
+                kwargs[f.name] = float(val)
+            elif isinstance(val, expected):
+                kwargs[f.name] = val
         return cls(**kwargs)
 
     def save(self) -> None:

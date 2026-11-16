@@ -234,6 +234,17 @@ class DownloadManager(QObject):
                     if self._tasks.get(i) and self._tasks[i].status in (STATUS_DONE, STATUS_CANCELLED)]:
             self.remove(tid)
 
+    def clear_all(self) -> int:
+        """停止队列并移除全部任务，返回清除条数。"""
+        n = len(self._order)
+        if self.can_stop():
+            self.stop_queue()
+        for tid in list(self._order):
+            self.remove(tid)
+        if not self._order:
+            self._set_work("空闲")
+        return n
+
     def running_count(self) -> int:
         return sum(1 for t in self._tasks.values() if t.job is not None)
 

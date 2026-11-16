@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
@@ -31,6 +31,8 @@ def main() -> int:
     engine.load(QUrl.fromLocalFile(str(RES_DIR / "ui" / "Main.qml")))
     if not engine.rootObjects():
         return 1
+    # 首帧出来后再查 yt-dlp/BBDownT 版本，避免与 Qt 加载抢磁盘
+    QTimer.singleShot(0, backend.warmTools)
     return app.exec()
 
 

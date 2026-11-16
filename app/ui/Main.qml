@@ -163,6 +163,12 @@ ApplicationWindow {
                 enabled: backend.tasks.count > 0
                 onClicked: backend.clearFinished()
             }
+            Button {
+                text: "清除队列"
+                flat: true
+                enabled: backend.tasks.count > 0
+                onClicked: backend.clearQueue()
+            }
         }
 
         Rectangle {
@@ -174,38 +180,52 @@ ApplicationWindow {
                 anchors.fill: parent
                 anchors.leftMargin: queueColumns.margin
                 anchors.rightMargin: 6
-                spacing: queueColumns.spacing
+                spacing: 0
                 Label {
                     Layout.preferredWidth: queueColumns.seq
+                    Layout.maximumWidth: queueColumns.seq
                     text: "#"
                     color: win.subtleText
                     font.pixelSize: 12
                     horizontalAlignment: Text.AlignHCenter
                 }
+                QueueColHandle { columns: queueColumns; target: "seq" }
                 Label {
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: queueColumns.title
+                    Layout.maximumWidth: queueColumns.title
                     text: "视频标题"
                     color: win.subtleText
                     font.pixelSize: 12
+                    elide: Text.ElideRight
                 }
+                QueueColHandle { columns: queueColumns; target: "title" }
                 Label {
                     Layout.preferredWidth: queueColumns.preset
+                    Layout.maximumWidth: queueColumns.preset
                     text: "下载画质"
                     color: win.subtleText
                     font.pixelSize: 12
+                    elide: Text.ElideRight
                 }
+                QueueColHandle { columns: queueColumns; target: "preset" }
                 Label {
                     Layout.preferredWidth: queueColumns.status
+                    Layout.maximumWidth: queueColumns.status
                     text: "状态"
                     color: win.subtleText
                     font.pixelSize: 12
+                    elide: Text.ElideRight
                 }
+                QueueColHandle { columns: queueColumns; target: "status" }
                 Label {
                     Layout.preferredWidth: queueColumns.actions
+                    Layout.maximumWidth: queueColumns.actions
                     text: "操作"
                     color: win.subtleText
                     font.pixelSize: 12
                 }
+                QueueColHandle { columns: queueColumns; target: "actions" }
+                Item { Layout.fillWidth: true }  // 剩余空间，避免列被强行拉伸
             }
         }
 

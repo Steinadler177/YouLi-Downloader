@@ -57,24 +57,28 @@ Item {
         radius: 6
     }
 
+    // 与表头一致：固定列 + 标题列可拉伸；列间 8px 对应 QueueColHandle 宽度
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: win.queueColumns.margin
         anchors.rightMargin: 6
         anchors.topMargin: 6
         anchors.bottomMargin: 6
-        spacing: win.queueColumns.spacing
+        spacing: 0
 
         Label {
             Layout.preferredWidth: win.queueColumns.seq
+            Layout.maximumWidth: win.queueColumns.seq
             text: String(row.seq)
             horizontalAlignment: Text.AlignHCenter
             color: win.subtleText
         }
+        Item { Layout.preferredWidth: 8; Layout.maximumWidth: 8 }
 
         RowLayout {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 120
+            Layout.preferredWidth: win.queueColumns.title
+            Layout.maximumWidth: win.queueColumns.title
+            Layout.fillWidth: false
             spacing: 8
 
             Rectangle {
@@ -115,16 +119,20 @@ Item {
                 HoverHandler { id: titleHover }
             }
         }
+        Item { Layout.preferredWidth: 8; Layout.maximumWidth: 8 }
 
         Label {
             Layout.preferredWidth: win.queueColumns.preset
+            Layout.maximumWidth: win.queueColumns.preset
             text: row.preset
             elide: Text.ElideRight
             font.pixelSize: 12
         }
+        Item { Layout.preferredWidth: 8; Layout.maximumWidth: 8 }
 
         ColumnLayout {
             Layout.preferredWidth: win.queueColumns.status
+            Layout.maximumWidth: win.queueColumns.status
             Layout.fillWidth: false
             spacing: 4
 
@@ -155,9 +163,11 @@ Item {
                                || (row.status === "downloading" && row.progress < 0)
             }
         }
+        Item { Layout.preferredWidth: 8; Layout.maximumWidth: 8 }
 
         RowLayout {
             Layout.preferredWidth: win.queueColumns.actions
+            Layout.maximumWidth: win.queueColumns.actions
             spacing: 0
             ToolButton {
                 visible: row.busy
@@ -191,6 +201,8 @@ Item {
                 ToolTip.visible: hovered; ToolTip.text: "移除"
             }
         }
+        Item { Layout.preferredWidth: 8; Layout.maximumWidth: 8 }
+        Item { Layout.fillWidth: true }
     }
 
     MouseArea {
