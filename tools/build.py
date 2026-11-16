@@ -3,7 +3,7 @@
 用法：双击 build.bat，或  .venv\\Scripts\\python.exe tools\\build.py
 必须在只装了 PySide6-Essentials 的环境（build.bat 创建的 .venv-build）里打包：
 开发用的 .venv 是完整 PySide6，会把约 200 MB 的 Qt6WebEngineCore.dll 一起打进去。
-输出：dist\\YTBDownloader\\YTBDownloader.exe，旁边是可单独更新的 bin\\ 目录。
+输出：dist\\YouLiDownloader\\YouLiDownloader.exe，旁边是可单独更新的 bin\\ 目录。
 
 为什么用单文件夹（--onedir）而不是单文件（--onefile）：
 - 启动快（单文件每次都要先解压到临时目录）；
@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-NAME = "YTBDownloader"
+NAME = "YouLiDownloader"
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 APP_OUT = DIST / NAME
@@ -149,7 +149,7 @@ def main() -> None:
     app_size = folder_size(APP_OUT) - folder_size(APP_OUT / "bin")
     print(f"\n完成：{APP_OUT / (NAME + '.exe')}")
     print(f"程序本体 {app_size:.0f} MB，外部工具 {folder_size(APP_OUT / 'bin'):.0f} MB")
-    print("整个 dist\\YTBDownloader 文件夹可以直接复制到别的电脑使用。")
+    print("整个 dist\\YouLiDownloader 文件夹可以直接复制到别的电脑使用。")
 
 
 if __name__ == "__main__":

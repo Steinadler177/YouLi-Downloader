@@ -19,8 +19,8 @@ def main() -> int:
     QQuickStyle.setStyle("Material")
 
     app = QGuiApplication(sys.argv)
-    app.setApplicationName("YTB Downloader")
-    app.setOrganizationName("Ytb-DL-Customize")
+    app.setApplicationName("YouLi Downloader")
+    app.setOrganizationName("YouLi")
     app.setWindowIcon(QIcon(str(RES_DIR / "ui" / "icons" / "app.svg")))
 
     backend = Backend(Settings.load())

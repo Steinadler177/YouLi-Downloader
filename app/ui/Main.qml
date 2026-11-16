@@ -13,7 +13,7 @@ ApplicationWindow {
     minimumWidth: 720
     minimumHeight: 520
     visible: true
-    title: "YTB Downloader"
+    title: "YouLi Downloader"
 
     Material.theme: backend.darkTheme ? Material.Dark : Material.Light
     Material.accent: Material.Teal
@@ -56,7 +56,7 @@ ApplicationWindow {
                 sourceSize: Qt.size(28, 28)
             }
             Label {
-                text: "YTB Downloader"
+                text: "YouLi Downloader"
                 font.pixelSize: 20
                 font.weight: Font.DemiBold
             }

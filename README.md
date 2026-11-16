@@ -1,4 +1,4 @@
-# YTB Downloader
+# YouLi Downloader
 
 基于 PySide6 + QML (Material) 的 Windows 下载器图形界面。  
 本项目基于 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 与 [BBDownT](https://github.com/LOVAHE/BBDownT)：一般网站走 yt-dlp，B 站链接走 BBDownT；  
@@ -103,16 +103,16 @@ BBDownT 在输出被重定向时不打印进度，所以下载走它的服务器
 
 ## 打包成 exe
 
-**双击 `build.bat`**，输出 `dist\YTBDownloader\YTBDownloader.exe`：
+**双击 `build.bat`**，输出 `dist\YouLiDownloader\YouLiDownloader.exe`：
 
 ```
-dist\YTBDownloader\
-  YTBDownloader.exe
+dist\YouLiDownloader\
+  YouLiDownloader.exe
   _internal\            Python + Qt 运行库（约 112 MB）
   bin\                  从项目 bin\ 复制的 yt-dlp / BBDownT / ffmpeg（只复制 exe，不复制登录信息）
 ```
 
-- 整个 `dist\YTBDownloader` 文件夹可以直接拷到别的电脑，不需要装 Python。
+- 整个 `dist\YouLiDownloader` 文件夹可以直接拷到别的电脑，不需要装 Python。
 - 打包版的设置（`config.json`）和 B 站登录（`bin\BBDownT.data`）都在它自己的文件夹里，
   和源码版互不影响，第一次使用需要重新扫码登录。
 - `build.bat` 会创建单独的 `.venv-build`，里面只装 `PySide6-Essentials` + PyInstaller。

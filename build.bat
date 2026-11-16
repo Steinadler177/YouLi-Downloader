@@ -1,5 +1,5 @@
 @echo off
-rem Build dist\YTBDownloader\YTBDownloader.exe with PyInstaller.
+rem Build dist\YouLiDownloader\YouLiDownloader.exe with PyInstaller.
 rem Uses a separate .venv-build with only PySide6-Essentials, so the package
 rem does not pull in QtWebEngine (~200 MB) from the full PySide6 in .venv.
 setlocal
