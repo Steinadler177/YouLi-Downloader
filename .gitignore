@@ -6,14 +6,26 @@ build/
 dist/
 config.json
 queue.json
-# bin/ 只提交说明文件：其余是外部工具和运行时文件，
-# 其中 BBDownT.data 是 B 站登录 Cookie，绝不能提交
+
+# bin/ 只提交说明文件：其余是外部工具和运行时文件。
+# BBDownT.data = B 站登录 Cookie，绝不能提交；
+# BBDownT.web.json / BBDownT.outputs 等也是运行时产物。
 bin/*
 !bin/README.txt
+
+# 兜底：即使误放到仓库根目录也不要提交
+BBDownT.data
+BBDownT.web.json
+BBDownT.outputs
+**/BBDownT.data
+**/BBDownT.web.json
+**/BBDownT.outputs
+
 # 下载输出目录（任意大小写）
 Download/
 download/
 **/Download/**
 **/download/**
+
 AGENTS.md
 CLAUDE.md

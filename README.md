@@ -1,7 +1,46 @@
 # YTB Downloader
 
-基于 PySide6 + QML (Material) 的下载器图形界面。一般网站用 yt-dlp，B 站链接用 [BBDownT](https://github.com/LOVAHE/BBDownT)；
+基于 PySide6 + QML (Material) 的 Windows 下载器图形界面。  
+本项目基于 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 与 [BBDownT](https://github.com/LOVAHE/BBDownT)：一般网站走 yt-dlp，B 站链接走 BBDownT；  
 yt-dlp / BBDownT / ffmpeg 都是外部可执行文件，可单独更新。
+
+A Windows GUI downloader built with PySide6 + QML (Material).  
+This project is based on [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [BBDownT](https://github.com/LOVAHE/BBDownT): most sites use yt-dlp; Bilibili URLs use BBDownT.  
+yt-dlp, BBDownT, and ffmpeg ship as separate executables and can be updated independently.
+
+## 免责声明 / Disclaimer
+
+**中文**
+
+- 本软件仅供学习与个人备份用途。请遵守当地法律以及各视频网站的服务条款；不要下载你无权获取的内容。
+- 使用本软件产生的一切后果由使用者自行承担；作者不对任何版权纠纷、账号风控、数据丢失或间接损失负责。
+- 本项目**不**捆绑、不分发站点 Cookie / 登录凭证。`bin/BBDownT.data` 等文件属于你的本地敏感数据，请勿上传或分享。
+- 上游工具行为（风控、清晰度、协议变更等）以其各自项目为准；本 GUI 只做调用与队列管理。
+
+**English**
+
+- This software is for learning and personal backup only. Comply with local laws and each site’s Terms of Service; do not download content you are not authorized to obtain.
+- You use this software at your own risk. The authors are not liable for copyright disputes, account restrictions, data loss, or any indirect damages.
+- This project does **not** bundle or distribute site cookies / login credentials. Files such as `bin/BBDownT.data` are your local secrets—do not upload or share them.
+- Upstream tool behavior (anti-bot checks, quality limits, protocol changes, etc.) is defined by those projects; this GUI only orchestrates them and manages a download queue.
+
+## 许可证 / License
+
+本仓库源代码以 **MIT License** 发布，详见 [`LICENSE`](LICENSE)。
+
+This repository’s source code is released under the **MIT License**. See [`LICENSE`](LICENSE).
+
+**第三方组件说明 / Third-party notes**
+
+| 组件 Component | 用途 Role | 许可 / 说明 License notes |
+| --- | --- | --- |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 通用下载器 Generic downloader | Unlicense（其官方 exe 打包可能另含 GPLv3+ 等组件） |
+| [BBDownT](https://github.com/LOVAHE/BBDownT) | B 站下载器 Bilibili downloader | 上游仓库及其前身 BBDown 的许可以其项目为准 |
+| ffmpeg | 合并 / 转码 Mux & convert | 取决于你使用的构建 Depends on the build you ship |
+| PySide6 / Qt | GUI | LGPL / 商业许可；分发二进制时请自行满足 LGPL 义务 |
+
+本仓库**不**把上述 exe 纳入版本控制；请从各自官方发布页获取。  
+Official binaries are **not** tracked in this repo—download them from each project’s releases.
 
 ## 运行
 
